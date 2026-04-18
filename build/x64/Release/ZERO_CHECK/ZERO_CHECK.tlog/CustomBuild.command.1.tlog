@@ -1,0 +1,10 @@
+^C:\USERS\JOBOG\DOCUMENTS\HOMEWORK\ECEN 489\TERM_PROJECT\BUILD\CMAKEFILES\4E96382BF9ED9D53A4765A793E1CBCB2\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" "-SC:/Users/jobog/Documents/Homework/ECEN 489/term_project" "-BC:/Users/jobog/Documents/Homework/ECEN 489/term_project/build" --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file "C:/Users/jobog/Documents/Homework/ECEN 489/term_project/build/sim.sln"
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
