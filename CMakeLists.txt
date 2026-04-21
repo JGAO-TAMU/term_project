@@ -9,6 +9,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
-add_executable(sim main.cu)
+add_executable(sim
+    main.cu
+    simulation_app.cu
+    kernels.cu
+    cpu_rules.cpp
+    output.cpp
+)
 set_target_properties(sim PROPERTIES CUDA_RUNTIME_LIBRARY None)
 target_link_libraries(sim PRIVATE CUDA::cudart)

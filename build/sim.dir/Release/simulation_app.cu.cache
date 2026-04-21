@@ -1,4 +1,4 @@
-Identity=..\main.cu
+Identity=..\simulation_app.cu
 AdditionalCompilerOptions=
 AdditionalCompilerOptions=
 AdditionalDependencies=
@@ -8,7 +8,7 @@ AdditionalOptions= -std=c++14 --generate-code=arch=compute_75,code=[compute_75,s
 AdditionalOptions= -std=c++14 --generate-code=arch=compute_75,code=[compute_75,sm_75] -Xcompiler="/EHsc -Ob2"
 CodeGeneration=
 CodeGeneration=
-CompileOut=sim.dir\Release\main.obj
+CompileOut=sim.dir\Release\simulation_app.obj
 CudaRuntime=None
 CudaToolkitCustomDir=
 DebugInformationFormat=None

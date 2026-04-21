@@ -4,7 +4,9 @@ C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_math.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_memcpy_s.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_memory.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_search.h
+C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_stdio_config.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_wctype.h
+C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_wstdio.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_wstdlib.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_wstring.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\corecrt_wtime.h
@@ -13,6 +15,7 @@ C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\ctype.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\errno.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\math.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\stddef.h
+C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\stdio.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\stdlib.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\string.h
 C:\Program Files (x86)\Windows Kits\10\Include\10.0.22621.0\ucrt\time.h
@@ -21,7 +24,9 @@ C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.3282
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\crtdefs.h
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\cstddef
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\cstdint
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\cstdio
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\cstdlib
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\cstring
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\initializer_list
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\limits.h
 C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\include\sal.h
@@ -79,5 +84,10 @@ C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\include\texture_types.h
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\include\vector_functions.h
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\include\vector_functions.hpp
 C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v13.0\include\vector_types.h
+C:\Users\jobog\Documents\Homework\ECEN 489\term_project\cpu_rules.h
+C:\Users\jobog\Documents\Homework\ECEN 489\term_project\cuda_utils.h
+C:\Users\jobog\Documents\Homework\ECEN 489\term_project\kernels.cuh
+C:\Users\jobog\Documents\Homework\ECEN 489\term_project\output.h
 C:\Users\jobog\Documents\Homework\ECEN 489\term_project\simulation_app.h
+C:\Users\jobog\Documents\Homework\ECEN 489\term_project\sim_math.h
 C:\Users\jobog\Documents\Homework\ECEN 489\term_project\sim_types.h
