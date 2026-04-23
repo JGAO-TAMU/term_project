@@ -26,6 +26,7 @@ static void print_usage(const char* program_name) {
     std::printf("  --minnow N\n");
     std::printf("  --bass N\n");
     std::printf("  --food N\n");
+    std::printf("  --cover N\n");
     std::printf("  --seed N\n");
     std::printf("  --bluegill-gain X\n");
     std::printf("  --bluegill-drain X\n");
@@ -76,6 +77,8 @@ static void print_usage(const char* program_name) {
     std::printf("  --food-gain X\n");
     std::printf("  --food-eat-radius X\n");
     std::printf("  --food-respawn-chance N\n");
+    std::printf("  --cover-radius X\n");
+    std::printf("  --cover-protection X\n");
 }
 
 static bool read_arg_value(int argc, char** argv, int* index, const char** value) {
@@ -123,6 +126,9 @@ SimulationApp::SimulationApp() {
     host.food_x = nullptr;
     host.food_y = nullptr;
     host.food_active = nullptr;
+    host.cover_x = nullptr;
+    host.cover_y = nullptr;
+    host.cover_intensity = nullptr;
 
     device.pos_x = nullptr;
     device.pos_y = nullptr;
@@ -150,11 +156,12 @@ SimulationApp::~SimulationApp() {
 }
 
 void SimulationApp::apply_defaults() {
-    initial_bluegill_count = 20;
-    initial_minnow_count = 35;
+    initial_bluegill_count = 30;
+    initial_minnow_count = 50;
     initial_bass_count = 1;
-    agent_count = 180;
-    food_count = 160;
+    agent_count = 320;
+    food_count = 260;
+    cover_count = 100;
     stream_mode = false;
     agent_bytes = 0;
     species_bytes = 0;
@@ -162,43 +169,44 @@ void SimulationApp::apply_defaults() {
     agent_flag_bytes = 0;
     food_bytes = 0;
     food_flag_bytes = 0;
+    cover_bytes = 0;
 
     params.tick_count = 50;
     params.ticks_per_day = 96;
     params.reproduction_chance_percent = 40;
-    params.food_respawn_chance_percent = 10;
+    params.food_respawn_chance_percent = 20;
     params.predation_success_percent = 70;
-    params.bluegill_predation_success_percent = 10;
-    params.minnow_predation_success_percent = 20;
+    params.bluegill_predation_success_percent = 24;
+    params.minnow_predation_success_percent = 36;
     params.max_children_per_birth = 8;
     params.bass_max_children_per_birth = 2;
     params.minnow_max_children_per_birth = 12;
     params.seed = 12345U;
     params.bluegill_energy_gain = 0.00f;
-    params.bluegill_energy_drain = 0.0012f;
+    params.bluegill_energy_drain = 0.0007f;
     params.bluegill_max_energy = 2.40f;
     params.minnow_energy_gain = 0.00f;
-    params.minnow_energy_drain = 0.0010f;
+    params.minnow_energy_drain = 0.00055f;
     params.minnow_max_energy = 2.00f;
-    params.bass_energy_drain = 0.0060f;
-    params.bass_energy_gain = 3.00f;
-    params.bass_max_energy = 3.00f;
+    params.bass_energy_drain = 0.0075f;
+    params.bass_energy_gain = 0.90f;
+    params.bass_max_energy = 2.60f;
     params.detection_radius = 0.28f;
     params.predation_radius = 0.025f;
     params.move_step = 0.025f;
     params.decay_factor = 0.95f;
     params.noise_scale = 0.20f;
-    params.reproduction_energy = 1.60f;
-    params.reproduction_cost = 0.95f;
+    params.reproduction_energy = 1.35f;
+    params.reproduction_cost = 0.75f;
     params.reproduction_cooldown_days = 6.0f;
     params.mate_radius = 0.055f;
     params.child_energy = 0.30f;
-    params.minnow_reproduction_energy = 1.45f;
-    params.minnow_reproduction_cost = 0.70f;
+    params.minnow_reproduction_energy = 1.20f;
+    params.minnow_reproduction_cost = 0.45f;
     params.minnow_child_energy = 0.25f;
     params.minnow_reproduction_cooldown_days = 3.0f;
-    params.bass_reproduction_energy = 2.40f;
-    params.bass_reproduction_cost = 1.80f;
+    params.bass_reproduction_energy = 2.60f;
+    params.bass_reproduction_cost = 2.20f;
     params.bass_child_energy = 0.60f;
     params.bass_reproduction_cooldown_days = 12.0f;
     params.size_growth_threshold = 1.30f;
@@ -215,6 +223,8 @@ void SimulationApp::apply_defaults() {
     params.bass_max_size = 10.00f;
     params.food_energy_gain = 0.18f;
     params.food_eat_radius = 0.025f;
+    params.cover_radius = 0.070f;
+    params.cover_protection_scale = 0.75f;
 }
 
 bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
@@ -261,6 +271,11 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
             return false;
         }
         food_count = std::atoi(value);
+    } else if (std::strcmp(argv[*arg_idx], "--cover") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        cover_count = std::atoi(value);
     } else if (std::strcmp(argv[*arg_idx], "--seed") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
@@ -513,6 +528,16 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
             return false;
         }
         params.food_respawn_chance_percent = std::atoi(value);
+    } else if (std::strcmp(argv[*arg_idx], "--cover-radius") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.cover_radius = static_cast<float>(std::atof(value));
+    } else if (std::strcmp(argv[*arg_idx], "--cover-protection") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.cover_protection_scale = static_cast<float>(std::atof(value));
     } else {
         std::fprintf(stderr, "Unknown option: %s\n", argv[*arg_idx]);
         print_usage(argv[0]);
@@ -551,6 +576,9 @@ void SimulationApp::normalize_config() {
     }
     if (food_count < 0) {
         food_count = 0;
+    }
+    if (cover_count < 0) {
+        cover_count = 0;
     }
     int initial_agent_count = initial_bluegill_count + initial_minnow_count + initial_bass_count;
     if (agent_count < initial_agent_count) {
@@ -652,6 +680,15 @@ void SimulationApp::normalize_config() {
     if (params.food_eat_radius < 0.0f) {
         params.food_eat_radius = 0.0f;
     }
+    if (params.cover_radius < 0.0f) {
+        params.cover_radius = 0.0f;
+    }
+    if (params.cover_protection_scale < 0.0f) {
+        params.cover_protection_scale = 0.0f;
+    }
+    if (params.cover_protection_scale > 1.0f) {
+        params.cover_protection_scale = 1.0f;
+    }
 }
 
 void SimulationApp::allocate_host() {
@@ -661,6 +698,7 @@ void SimulationApp::allocate_host() {
     agent_flag_bytes = static_cast<size_t>(agent_count) * sizeof(bool);
     food_bytes = static_cast<size_t>(food_count) * sizeof(float);
     food_flag_bytes = static_cast<size_t>(food_count) * sizeof(int);
+    cover_bytes = static_cast<size_t>(cover_count) * sizeof(float);
 
     host.pos_x = static_cast<float*>(std::malloc(agent_bytes));
     host.pos_y = static_cast<float*>(std::malloc(agent_bytes));
@@ -677,6 +715,9 @@ void SimulationApp::allocate_host() {
     host.food_x = static_cast<float*>(std::malloc(food_bytes));
     host.food_y = static_cast<float*>(std::malloc(food_bytes));
     host.food_active = static_cast<int*>(std::malloc(food_flag_bytes));
+    host.cover_x = static_cast<float*>(std::malloc(cover_bytes));
+    host.cover_y = static_cast<float*>(std::malloc(cover_bytes));
+    host.cover_intensity = static_cast<float*>(std::malloc(cover_bytes));
 
     if (host.pos_x == nullptr || host.pos_y == nullptr ||
         host.energy == nullptr || host.size == nullptr ||
@@ -686,7 +727,10 @@ void SimulationApp::allocate_host() {
         host.dir_x == nullptr || host.dir_y == nullptr ||
         (food_count > 0 && (host.food_x == nullptr ||
                             host.food_y == nullptr ||
-                            host.food_active == nullptr))) {
+                            host.food_active == nullptr)) ||
+        (cover_count > 0 && (host.cover_x == nullptr ||
+                             host.cover_y == nullptr ||
+                             host.cover_intensity == nullptr))) {
         std::fprintf(stderr, "Host memory allocation failed.\n");
         std::exit(EXIT_FAILURE);
     }
@@ -770,6 +814,16 @@ void SimulationApp::initialize_host() {
         host.food_x[food_idx] = static_cast<float>((food_idx * 37) % 100) / 99.0f;
         host.food_y[food_idx] = static_cast<float>((food_idx * 61 + 17) % 100) / 99.0f;
         host.food_active[food_idx] = 1;
+    }
+
+    for (int cover_idx = 0; cover_idx < cover_count; ++cover_idx) {
+        float base_x = static_cast<float>((cover_idx * 43 + 13) % 100) / 99.0f;
+        float base_y = static_cast<float>((cover_idx * 71 + 29) % 100) / 99.0f;
+        float band_shift = static_cast<float>(cover_idx % 5) * 0.015f - 0.03f;
+        host.cover_x[cover_idx] = clamp01_host(base_x);
+        host.cover_y[cover_idx] = clamp01_host(base_y + band_shift);
+        host.cover_intensity[cover_idx] =
+            0.35f + 0.55f * static_cast<float>((cover_idx * 17) % 10) / 9.0f;
     }
 }
 
@@ -918,13 +972,17 @@ void SimulationApp::append_report_state(const char* label) const {
                 host.food_x,
                 host.food_y,
                 host.food_active,
-                food_count);
+                food_count,
+                host.cover_x,
+                host.cover_y,
+                host.cover_intensity,
+                cover_count);
     std::fclose(report);
 }
 
 void SimulationApp::print_initial_output() {
     if (stream_mode) {
-        std::printf("tick,day,type,species,id,x,y,energy,active,size\n");
+        std::printf("tick,day,type,species,id,x,y,energy,active,size,intensity\n");
         std::fflush(stdout);
         stream_tick_state(0,
                           0.0f,
@@ -939,7 +997,11 @@ void SimulationApp::print_initial_output() {
                           host.food_x,
                           host.food_y,
                           host.food_active,
-                          food_count);
+                          food_count,
+                          host.cover_x,
+                          host.cover_y,
+                          host.cover_intensity,
+                          cover_count);
     } else {
         append_report_state("Initial state");
     }
@@ -1012,7 +1074,11 @@ void SimulationApp::run_tick(int tick, int blocks, int threads_per_block) {
                       host.alive,
                       host.exists,
                       host.species,
+                      host.cover_x,
+                      host.cover_y,
+                      host.cover_intensity,
                       agent_count,
+                      cover_count,
                       params);
     reproduce_bluegill(host.pos_x,
                        host.pos_y,
@@ -1075,7 +1141,11 @@ void SimulationApp::run_tick(int tick, int blocks, int threads_per_block) {
                           host.food_x,
                           host.food_y,
                           host.food_active,
-                          food_count);
+                          food_count,
+                          host.cover_x,
+                          host.cover_y,
+                          host.cover_intensity,
+                          cover_count);
     } else {
         char label[64];
         std::snprintf(label,
@@ -1136,12 +1206,13 @@ void SimulationApp::print_run_summary(double program_ms) const {
     std::fprintf(out, "Final day: %.2f | Final tick: %d\n",
                  tick_to_day(params.tick_count, params),
                  params.tick_count);
-    std::fprintf(out, "Final counts | Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Alive total: %d\n",
+    std::fprintf(out, "Final counts | Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Cover: %d | Alive total: %d\n",
                  final_bluegill,
                  final_minnow,
                  final_bass,
                  active_food,
                  food_count,
+                 cover_count,
                  final_bluegill + final_minnow + final_bass);
     std::fflush(out);
 }
@@ -1174,6 +1245,7 @@ void SimulationApp::write_report(double program_ms) const {
            << " | Minnow: " << final_minnow
            << " | Bass: " << final_bass
            << " | Food: " << active_food << "/" << food_count
+           << " | Cover: " << cover_count
            << " | Alive total: " << (final_bluegill + final_minnow + final_bass) << "\n\n";
 
     report << "Simulation Report\n";
@@ -1196,11 +1268,14 @@ void SimulationApp::write_report(double program_ms) const {
     report << "sim.final_bass=" << final_bass << "\n";
     report << "sim.active_food=" << active_food << "\n";
     report << "sim.total_food=" << food_count << "\n";
+    report << "sim.total_cover=" << cover_count << "\n";
     report << "debug.detection_radius=" << params.detection_radius << "\n";
     report << "debug.predation_radius=" << params.predation_radius << "\n";
     report << "debug.move_step=" << params.move_step << "\n";
     report << "debug.food_respawn_chance_percent=" << params.food_respawn_chance_percent << "\n";
     report << "debug.food_energy_gain=" << params.food_energy_gain << "\n";
+    report << "debug.cover_radius=" << params.cover_radius << "\n";
+    report << "debug.cover_protection_scale=" << params.cover_protection_scale << "\n";
     report << "debug.bluegill_predation_success_percent=" << params.bluegill_predation_success_percent << "\n";
     report << "debug.minnow_predation_success_percent=" << params.minnow_predation_success_percent << "\n";
     report << "debug.reproduction_cooldown_days=" << params.reproduction_cooldown_days << "\n";
@@ -1224,6 +1299,9 @@ void SimulationApp::free_host() {
     std::free(host.food_x);
     std::free(host.food_y);
     std::free(host.food_active);
+    std::free(host.cover_x);
+    std::free(host.cover_y);
+    std::free(host.cover_intensity);
 
     host.pos_x = nullptr;
     host.pos_y = nullptr;
@@ -1240,6 +1318,9 @@ void SimulationApp::free_host() {
     host.food_x = nullptr;
     host.food_y = nullptr;
     host.food_active = nullptr;
+    host.cover_x = nullptr;
+    host.cover_y = nullptr;
+    host.cover_intensity = nullptr;
 }
 
 void SimulationApp::free_device() {

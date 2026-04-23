@@ -30,7 +30,11 @@ int process_predation(float* pos_x,
                       bool* alive,
                       bool* exists,
                       const int* species,
+                      const float* cover_x,
+                      const float* cover_y,
+                      const float* cover_intensity,
                       int agent_count,
+                      int cover_count,
                       const SimParams& params);
 
 int reproduce_bluegill(float* pos_x,

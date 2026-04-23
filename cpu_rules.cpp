@@ -111,6 +111,37 @@ int respawn_food(float* food_x,
     return spawned;
 }
 
+static float local_cover_intensity(const float* cover_x,
+                                   const float* cover_y,
+                                   const float* cover_intensity,
+                                   int cover_count,
+                                   float x,
+                                   float y,
+                                   float cover_radius) {
+    if (cover_count <= 0 || cover_radius <= 0.0f) {
+        return 0.0f;
+    }
+
+    float cover_radius_sq = cover_radius * cover_radius;
+    float total_intensity = 0.0f;
+    for (int cover_idx = 0; cover_idx < cover_count; ++cover_idx) {
+        float diff_x = cover_x[cover_idx] - x;
+        float diff_y = cover_y[cover_idx] - y;
+        float distance_sq = diff_x * diff_x + diff_y * diff_y;
+        if (distance_sq > cover_radius_sq) {
+            continue;
+        }
+
+        float falloff = 1.0f - distance_sq / cover_radius_sq;
+        total_intensity += cover_intensity[cover_idx] * falloff;
+    }
+
+    if (total_intensity > 1.0f) {
+        total_intensity = 1.0f;
+    }
+    return total_intensity;
+}
+
 int process_predation(float* pos_x,
                       float* pos_y,
                       float* energy,
@@ -118,7 +149,11 @@ int process_predation(float* pos_x,
                       bool* alive,
                       bool* exists,
                       const int* species,
+                      const float* cover_x,
+                      const float* cover_y,
+                      const float* cover_intensity,
                       int agent_count,
+                      int cover_count,
                       const SimParams& params) {
     const float predation_radius_sq = params.predation_radius * params.predation_radius;
     int kills = 0;
@@ -143,9 +178,25 @@ int process_predation(float* pos_x,
             float diff_y = pos_y[prey_idx] - pos_y[bass_idx];
             float distance_sq = diff_x * diff_x + diff_y * diff_y;
             if (distance_sq < predation_radius_sq) {
-                int success_chance = species[prey_idx] == SPECIES_MINNOW ?
-                                     params.minnow_predation_success_percent :
-                                     params.bluegill_predation_success_percent;
+                float local_cover = local_cover_intensity(cover_x,
+                                                          cover_y,
+                                                          cover_intensity,
+                                                          cover_count,
+                                                          pos_x[prey_idx],
+                                                          pos_y[prey_idx],
+                                                          params.cover_radius);
+                float cover_modifier = 1.0f - params.cover_protection_scale * local_cover;
+                if (cover_modifier < 0.0f) {
+                    cover_modifier = 0.0f;
+                }
+
+                int base_success = species[prey_idx] == SPECIES_MINNOW ?
+                                   params.minnow_predation_success_percent :
+                                   params.bluegill_predation_success_percent;
+                int success_chance = static_cast<int>(base_success * cover_modifier + 0.5f);
+                if (success_chance < 0) {
+                    success_chance = 0;
+                }
                 int roll = std::rand() % 100;
                 if (roll >= success_chance) {
                     break;

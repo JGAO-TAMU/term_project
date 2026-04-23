@@ -60,6 +60,8 @@ struct SimParams {
     float bass_max_size;
     float food_energy_gain;
     float food_eat_radius;
+    float cover_radius;
+    float cover_protection_scale;
 };
 
 struct HostBuffers {
@@ -78,6 +80,9 @@ struct HostBuffers {
     float* food_x;
     float* food_y;
     int* food_active;
+    float* cover_x;
+    float* cover_y;
+    float* cover_intensity;
 };
 
 struct DeviceBuffers {

@@ -3,9 +3,10 @@
 This branch simulates three species plus a limited food resource:
 
 - `food`: limited particles that bluegill and minnows can detect, move toward, and eat for energy. Consumed food can respawn later at a new random position based on a simple CPU-side respawn chance.
+- `cover`: static habitat patches with per-patch intensity. Cover is streamed to the visualizer as its own heat layer, and prey inside stronger cover zones are harder for bass to catch.
 - `bluegill`: prey. Bluegill lose a small maintenance cost, seek nearby food for energy, seek eligible mates when they have enough energy, and reproduce into available agent capacity. Reproduction now uses cooldowns measured in simulated days rather than effectively continuous spawning.
 - `minnow`: smaller prey. Minnows eat the same food as bluegill, have lower energy drain for higher vitality, start smaller, and use their own day-based reproduction cooldown and litter settings.
-- `bass`: predator. Bass seek nearby bluegill or minnows when hungry, stop eating when full, and gain energy when they catch prey. Predation success can be set per prey species with `--bluegill-predation-success` and `--minnow-predation-success`, with minnows easier to catch by default. Bass also use the same tick/day reproduction architecture with their own slower cooldown and smaller litters.
+- `bass`: predator. Bass seek nearby bluegill or minnows when hungry, stop eating when full, and gain energy when they catch prey. Predation success can be set per prey species with `--bluegill-predation-success` and `--minnow-predation-success`, with minnows easier to catch by default. Static cover reduces effective catch success depending on local cover intensity, so the default predation success was nudged upward to compensate. Bass also use the same tick/day reproduction architecture with their own slower cooldown and smaller litters.
 - `size`: fish grow when energy is abundant and shrink when energy is scarce, within species-specific size ranges. Starting ranges are bass `0.8-10.0`, bluegill `0.1-0.5`, and minnow `0.05-0.1`. Larger prey gives bass more energy when eaten, which makes size a useful hook for future traits.
 
 Simulation time is now interpreted as ticks and days. `--ticks` is the number of ticks to simulate, `--ticks-per-day` defines how many ticks make up one simulated day, and the visualizer shows the current day directly.
@@ -52,15 +53,15 @@ The same run also writes `sim_report.txt` in the project folder. That report inc
 - kernel timing totals / average / max / launch count
 - final tick and simulated day
 - initial and final species counts
-- active food count
-- debug/config values such as detection radius, predation radius, food respawn chance, food gain, predation success, and reproduction cooldowns
+- active food count and total cover count
+- debug/config values such as detection radius, predation radius, food respawn chance, food gain, cover radius, cover protection, predation success, and reproduction cooldowns
 
-Useful runtime options include `--ticks`, `--ticks-per-day`, `--agent-capacity`, `--bluegill`, `--minnow`, `--bass`, `--food`, `--bluegill-gain`, `--bluegill-drain`, `--bluegill-max-energy`, `--minnow-gain`, `--minnow-drain`, `--minnow-max-energy`, `--minnow-reproduce-energy`, `--minnow-reproduce-cost`, `--minnow-reproduce-cooldown-days`, `--minnow-child-energy`, `--minnow-max-children`, `--bass-drain`, `--bass-gain`, `--bass-max-energy`, `--bass-reproduce-energy`, `--bass-reproduce-cost`, `--bass-reproduce-cooldown-days`, `--bass-child-energy`, `--bass-max-children`, `--detection-radius`, `--predation-radius`, `--predation-success`, `--bluegill-predation-success`, `--minnow-predation-success`, `--move-step`, `--reproduce-energy`, `--reproduce-cost`, `--reproduce-cooldown-days`, `--mate-radius`, `--child-energy`, `--reproduce-chance`, `--max-children`, `--food-gain`, `--food-eat-radius`, `--food-respawn-chance`, `--size-growth-threshold`, `--size-shrink-threshold`, `--size-growth-rate`, `--size-shrink-rate`, `--bluegill-min-size`, `--bluegill-max-size`, `--minnow-min-size`, `--minnow-max-size`, `--bass-min-size`, `--bass-max-size`, and `--stream`.
+Useful runtime options include `--ticks`, `--ticks-per-day`, `--agent-capacity`, `--bluegill`, `--minnow`, `--bass`, `--food`, `--cover`, `--bluegill-gain`, `--bluegill-drain`, `--bluegill-max-energy`, `--minnow-gain`, `--minnow-drain`, `--minnow-max-energy`, `--minnow-reproduce-energy`, `--minnow-reproduce-cost`, `--minnow-reproduce-cooldown-days`, `--minnow-child-energy`, `--minnow-max-children`, `--bass-drain`, `--bass-gain`, `--bass-max-energy`, `--bass-reproduce-energy`, `--bass-reproduce-cost`, `--bass-reproduce-cooldown-days`, `--bass-child-energy`, `--bass-max-children`, `--detection-radius`, `--predation-radius`, `--predation-success`, `--bluegill-predation-success`, `--minnow-predation-success`, `--move-step`, `--reproduce-energy`, `--reproduce-cost`, `--reproduce-cooldown-days`, `--mate-radius`, `--child-energy`, `--reproduce-chance`, `--max-children`, `--food-gain`, `--food-eat-radius`, `--food-respawn-chance`, `--cover-radius`, `--cover-protection`, `--size-growth-threshold`, `--size-shrink-threshold`, `--size-growth-rate`, `--size-shrink-rate`, `--bluegill-min-size`, `--bluegill-max-size`, `--minnow-min-size`, `--minnow-max-size`, `--bass-min-size`, `--bass-max-size`, and `--stream`.
 
 Example with tighter food supply and mixed prey:
 
 ```powershell
-.\build\Release\sim.exe --ticks 120 --agent-capacity 320 --bluegill 45 --minnow 60 --bass 10 --food 240 --food-gain 0.24 --food-respawn-chance 6 --reproduce-energy 1.35 --reproduce-cost 0.80 --mate-radius 0.08 --max-children 5 --minnow-drain 0.006 --minnow-reproduce-energy 1.20 --minnow-reproduce-cost 0.55 --minnow-child-energy 0.70 --minnow-max-children 9 --bass-reproduce-energy 1.95 --bass-reproduce-cost 1.55 --bass-max-children 3 --bluegill-predation-success 45 --minnow-predation-success 70 --bass-gain 1.0 --bluegill-min-size 0.10 --bluegill-max-size 0.50 --minnow-min-size 0.05 --minnow-max-size 0.10 --bass-min-size 0.80 --bass-max-size 10.0 --size-growth-threshold 1.30 --size-shrink-threshold 0.70 --size-growth-rate 0.015 --size-shrink-rate 0.020
+.\build\Release\sim.exe --ticks 120 --agent-capacity 320 --bluegill 45 --minnow 60 --bass 10 --food 240 --cover 90 --food-gain 0.24 --food-respawn-chance 6 --cover-radius 0.07 --cover-protection 0.60 --reproduce-energy 1.35 --reproduce-cost 0.80 --mate-radius 0.08 --max-children 5 --minnow-drain 0.006 --minnow-reproduce-energy 1.20 --minnow-reproduce-cost 0.55 --minnow-child-energy 0.70 --minnow-max-children 9 --bass-reproduce-energy 1.95 --bass-reproduce-cost 1.55 --bass-max-children 3 --bluegill-predation-success 45 --minnow-predation-success 70 --bass-gain 1.0 --bluegill-min-size 0.10 --bluegill-max-size 0.50 --minnow-min-size 0.05 --minnow-max-size 0.10 --bass-min-size 0.80 --bass-max-size 10.0 --size-growth-threshold 1.30 --size-shrink-threshold 0.70 --size-growth-rate 0.015 --size-shrink-rate 0.020
 ```
 
 Big run:
@@ -73,9 +74,11 @@ Big run:
 python .\vis.py
 ```
 
-`vis.py` launches `sim --stream`, loads the streamed ticks into memory, and opens a Matplotlib replay viewer. Bluegill are blue circles, minnows are small cyan circles, bass are red triangles, newly spawned prey are stars for one frame, newly spawned bass are bright red triangles for one frame, and active food is shown as a green heat map layer. Fish marker size scales with the simulation `size` value. The viewer now tracks simulated day directly and plots history against days rather than raw ticks.
+`vis.py` launches `sim --stream`, loads the streamed ticks into memory, and opens a Matplotlib replay viewer. Bluegill are blue circles, minnows are small cyan circles, bass are red triangles, newly spawned prey are stars for one frame, newly spawned bass are bright red triangles for one frame, active food is shown as a green heat map layer, and static cover is shown as a blue heat map layer. Fish marker size scales with the simulation `size` value. The viewer now tracks simulated day directly and plots history against days rather than raw ticks.
 
 The replay viewer includes play/pause, previous/next frame buttons, a restart button, a frame slider, and a delay slider for playback speed. Keyboard shortcuts are also available: Space toggles play/pause, Left/Right move backward/forward one tick, Home jumps to the start, and End jumps to the final frame.
+
+If you want to archive a run, `vis.py` can also save the streamed replay rows into a timestamped CSV inside a `replay` folder.
 
 Any extra arguments passed to `vis.py` are forwarded to the simulation:
 
@@ -83,4 +86,10 @@ Any extra arguments passed to `vis.py` are forwarded to the simulation:
 python .\vis.py --ticks 50 --vis-skip 2
 ```
 
-Visualizer-only options include `--vis-skip N` to store every Nth simulation tick, `--vis-pause X` to set the initial playback delay, and `--vis-autoplay` to start replay automatically after loading frames.
+Save a replay CSV while loading the viewer:
+
+```powershell
+python .\vis.py --ticks 200 --vis-skip 4 --vis-save-replay
+```
+
+Visualizer-only options include `--vis-skip N` to store every Nth simulation tick, `--vis-pause X` to set the initial playback delay, `--vis-autoplay` to start replay automatically after loading frames, `--vis-save-replay` to save a replay CSV, and `--vis-replay-dir PATH` to choose the replay output folder.

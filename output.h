@@ -15,7 +15,11 @@ void write_state(FILE* out,
                  const float* food_x,
                  const float* food_y,
                  const int* food_active,
-                 int food_count);
+                 int food_count,
+                 const float* cover_x,
+                 const float* cover_y,
+                 const float* cover_intensity,
+                 int cover_count);
 
 void stream_tick_state(int tick,
                        float day,
@@ -30,6 +34,10 @@ void stream_tick_state(int tick,
                        const float* food_x,
                        const float* food_y,
                        const int* food_active,
-                       int food_count);
+                       int food_count,
+                       const float* cover_x,
+                       const float* cover_y,
+                       const float* cover_intensity,
+                       int cover_count);
 
 #endif

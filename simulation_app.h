@@ -37,6 +37,7 @@ private:
     int initial_bass_count;
     int agent_count;
     int food_count;
+    int cover_count;
     bool stream_mode;
     SimParams params;
     size_t agent_bytes;
@@ -45,6 +46,7 @@ private:
     size_t agent_flag_bytes;
     size_t food_bytes;
     size_t food_flag_bytes;
+    size_t cover_bytes;
     float total_kernel_ms;
     float max_kernel_ms;
     int kernel_launch_count;

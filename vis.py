@@ -2,6 +2,7 @@ import argparse
 import csv
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -32,6 +33,8 @@ def parse_args():
     parser.add_argument("--vis-skip", type=int, default=1)
     parser.add_argument("--vis-pause", type=float, default=0.05)
     parser.add_argument("--vis-autoplay", action="store_true")
+    parser.add_argument("--vis-save-replay", action="store_true")
+    parser.add_argument("--vis-replay-dir", default="replay")
     parser.add_argument("--help-vis", action="store_true")
     args, sim_args = parser.parse_known_args()
 
@@ -40,6 +43,8 @@ def parse_args():
         print("  --vis-skip N       Store every Nth simulation tick for replay. Default: 1")
         print("  --vis-pause X      Initial replay delay in seconds. Default: 0.05")
         print("  --vis-autoplay     Start replay automatically after loading frames.")
+        print("  --vis-save-replay  Save streamed replay CSV to the replay folder.")
+        print("  --vis-replay-dir   Replay output folder. Default: replay")
         print("All other options are forwarded to sim.exe.")
         sys.exit(0)
 
@@ -51,12 +56,20 @@ def parse_args():
     return args, sim_args
 
 
+def create_replay_path(replay_dir):
+    replay_root = Path(replay_dir)
+    replay_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return replay_root / f"replay_{timestamp}.csv"
+
+
 def empty_history():
     return {"tick": [], "day": [], "bluegill": [], "minnow": [], "bass": [], "food": [], "new": []}
 
 
 def build_frame(tick, day, rows, seen_agent_ids):
     food_heat = [[0 for _ in range(FOOD_GRID_SIZE)] for _ in range(FOOD_GRID_SIZE)]
+    cover_heat = [[0.0 for _ in range(FOOD_GRID_SIZE)] for _ in range(FOOD_GRID_SIZE)]
     frame = {
         "tick": tick,
         "day": day,
@@ -82,6 +95,7 @@ def build_frame(tick, day, rows, seen_agent_ids):
         "dead_agents_y": [],
         "dead_agents_size": [],
         "food_heat": food_heat,
+        "cover_heat": cover_heat,
         "total_agents": 0,
         "alive_agents": 0,
         "bluegill_count": 0,
@@ -89,6 +103,8 @@ def build_frame(tick, day, rows, seen_agent_ids):
         "bass_count": 0,
         "active_food_count": 0,
         "total_food_count": 0,
+        "total_cover_count": 0,
+        "avg_cover_intensity": 0.0,
         "avg_bluegill_energy": 0.0,
         "avg_minnow_energy": 0.0,
         "avg_bass_energy": 0.0,
@@ -106,6 +122,7 @@ def build_frame(tick, day, rows, seen_agent_ids):
     bluegill_size_total = 0.0
     minnow_size_total = 0.0
     bass_size_total = 0.0
+    cover_intensity_total = 0.0
 
     for row in rows:
         if row["type"] == "food":
@@ -117,6 +134,17 @@ def build_frame(tick, day, rows, seen_agent_ids):
                 row_idx = min(FOOD_GRID_SIZE - 1, max(0, int(y * FOOD_GRID_SIZE)))
                 food_heat[row_idx][col] += 1
                 frame["active_food_count"] += 1
+            continue
+
+        if row["type"] == "cover":
+            x = float(row["x"])
+            y = float(row["y"])
+            intensity = float(row.get("intensity", 0.0))
+            col = min(FOOD_GRID_SIZE - 1, max(0, int(x * FOOD_GRID_SIZE)))
+            row_idx = min(FOOD_GRID_SIZE - 1, max(0, int(y * FOOD_GRID_SIZE)))
+            cover_heat[row_idx][col] += intensity
+            frame["total_cover_count"] += 1
+            cover_intensity_total += intensity
             continue
 
         if row["type"] != "agent":
@@ -189,6 +217,8 @@ def build_frame(tick, day, rows, seen_agent_ids):
     if frame["bass_count"] > 0:
         frame["avg_bass_energy"] = bass_energy_total / frame["bass_count"]
         frame["avg_bass_size"] = bass_size_total / frame["bass_count"]
+    if frame["total_cover_count"] > 0:
+        frame["avg_cover_intensity"] = cover_intensity_total / frame["total_cover_count"]
 
     return frame
 
@@ -199,7 +229,7 @@ def remember_agent_ids(rows, seen_agent_ids):
             seen_agent_ids.add(int(row["id"]))
 
 
-def collect_frames(sim_command, vis_skip):
+def collect_frames(sim_command, vis_skip, replay_path=None):
     print("Launching simulation:")
     print(" ".join(sim_command))
     print("Loading frames...")
@@ -221,6 +251,22 @@ def collect_frames(sim_command, vis_skip):
     current_tick = None
     current_day = 0.0
     rows = []
+    saved_replay = None
+
+    header_line = process.stdout.readline()
+    if not header_line:
+        stderr_output = ""
+        if process.stderr is not None:
+            stderr_output = process.stderr.read()
+        process.wait()
+        raise RuntimeError(f"Simulation did not produce stream output.\n{stderr_output}")
+
+    fieldnames = next(csv.reader([header_line.strip()]))
+    replay_file = None
+    if replay_path is not None:
+        replay_file = replay_path.open("w", newline="", encoding="utf-8")
+        replay_file.write(header_line)
+        saved_replay = replay_path
 
     def finish_tick(tick, day, tick_rows):
         if tick is None:
@@ -241,8 +287,19 @@ def collect_frames(sim_command, vis_skip):
 
         remember_agent_ids(tick_rows, seen_agent_ids)
 
-    reader = csv.DictReader(process.stdout)
-    for row in reader:
+    for line in process.stdout:
+        if replay_file is not None:
+            replay_file.write(line)
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        values = next(csv.reader([stripped]))
+        if len(values) != len(fieldnames):
+            continue
+
+        row = dict(zip(fieldnames, values))
         tick = int(row.get("tick", row.get("step", "0")))
         day = float(row.get("day", tick))
 
@@ -264,6 +321,9 @@ def collect_frames(sim_command, vis_skip):
     if process.stderr is not None:
         stderr_output = process.stderr.read()
 
+    if replay_file is not None:
+        replay_file.close()
+
     return_code = process.wait()
     if return_code != 0:
         raise RuntimeError(f"Simulation exited with code {return_code}.\n{stderr_output}")
@@ -271,6 +331,8 @@ def collect_frames(sim_command, vis_skip):
         raise RuntimeError("No frames were captured from the simulation.")
 
     print(f"Loaded {len(frames)} replay frames.")
+    if saved_replay is not None:
+        print(f"Saved replay to: {saved_replay}")
     return frames, history
 
 
@@ -278,6 +340,16 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
     frame = frames[frame_index]
 
     plot_ax.clear()
+    if frame["total_cover_count"] > 0:
+        plot_ax.imshow(
+            frame["cover_heat"],
+            extent=[0, 1, 0, 1],
+            origin="lower",
+            cmap="PuBu",
+            alpha=0.28,
+            interpolation="nearest",
+            vmin=0,
+        )
     if frame["active_food_count"] > 0:
         plot_ax.imshow(
             frame["food_heat"],
@@ -360,7 +432,7 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
     plot_ax.set_title(
         f"Tick {frame['tick']} | Day {frame['day']:.2f} | Bluegill {frame['bluegill_count']} | "
         f"Minnow {frame['minnow_count']} | "
-        f"Bass {frame['bass_count']} | Food {frame['active_food_count']}"
+        f"Bass {frame['bass_count']} | Food {frame['active_food_count']} | Cover {frame['total_cover_count']}"
     )
     plot_ax.legend(loc="upper right")
 
@@ -380,6 +452,7 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
         f"Day: {frame['day']:.2f} | Tick: {frame['tick']}\n"
         f"Alive agents: {frame['alive_agents']}/{frame['total_agents']}\n"
         f"Active food: {frame['active_food_count']}/{frame['total_food_count']}\n"
+        f"Cover zones: {frame['total_cover_count']} | Avg intensity: {frame['avg_cover_intensity']:.2f}\n"
         f"New bluegill this frame: {len(frame['new_child_x'])}\n"
         f"New minnow this frame: {len(frame['new_minnow_x'])}\n"
         f"New bass this frame: {len(frame['new_bass_x'])}\n"
@@ -566,7 +639,8 @@ def main():
     vis_args, sim_args = parse_args()
     sim_executable = find_sim_executable()
     sim_command = [str(sim_executable), "--stream"] + sim_args
-    frames, history = collect_frames(sim_command, vis_args.vis_skip)
+    replay_path = create_replay_path(vis_args.vis_replay_dir) if vis_args.vis_save_replay else None
+    frames, history = collect_frames(sim_command, vis_args.vis_skip, replay_path)
     ACTIVE_VIEWER = ReplayViewer(frames, history, vis_args.vis_pause, vis_args.vis_autoplay)
     plt.show()
 
