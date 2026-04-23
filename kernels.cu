@@ -31,6 +31,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
                                        float* energy,
                                        float* size,
                                        bool* alive,
+                                       const int* reproduction_cooldown,
                                        int* species,
                                        float* dir_x,
                                        float* dir_y,
@@ -39,7 +40,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
                                        int* food_active,
                                        int agent_count,
                                        int food_count,
-                                       int step,
+                                       int tick,
                                        SimParams params) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= agent_count || !alive[idx]) {
@@ -50,6 +51,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
     float y = pos_y[idx];
     float e = energy[idx];
     float s = size[idx];
+    int my_reproduction_cooldown = reproduction_cooldown[idx];
     int my_species = species[idx];
     bool is_prey = my_species == SPECIES_BLUEGILL || my_species == SPECIES_MINNOW;
     float species_min_size = params.bluegill_min_size;
@@ -101,7 +103,8 @@ __global__ void simulate_agents_kernel(float* pos_x,
         my_reproduction_energy = params.minnow_reproduction_energy;
         my_reproduction_cost = params.minnow_reproduction_cost;
     }
-    bool can_mate = e >= my_reproduction_energy &&
+    bool can_mate = my_reproduction_cooldown <= 0 &&
+                    e >= my_reproduction_energy &&
                     e - my_reproduction_cost > 0.0f;
 
     if (can_mate) {
@@ -109,6 +112,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
             if (other_idx != idx &&
                 alive[other_idx] &&
                 species[other_idx] == my_species &&
+                reproduction_cooldown[other_idx] <= 0 &&
                 energy[other_idx] >= my_reproduction_energy &&
                 energy[other_idx] - my_reproduction_cost > 0.0f) {
                 float diff_x = pos_x[other_idx] - x;
@@ -174,7 +178,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
         }
     } else {
         is_wandering = true;
-        const unsigned int base = static_cast<unsigned int>(step * 131 + idx * 977);
+        const unsigned int base = static_cast<unsigned int>(tick * 131 + idx * 977);
         float wander_dir_x = dir_x[idx] * params.decay_factor;
         float wander_dir_y = dir_y[idx] * params.decay_factor;
         float noise_x = params.noise_scale * (2.0f * hash_to_unit_float(base + 17U) - 1.0f);

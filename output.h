@@ -1,7 +1,10 @@
 #ifndef OUTPUT_H
 #define OUTPUT_H
 
-void print_state(const char* label,
+#include <cstdio>
+
+void write_state(FILE* out,
+                 const char* label,
                  const float* pos_x,
                  const float* pos_y,
                  const float* energy,
@@ -14,7 +17,8 @@ void print_state(const char* label,
                  const int* food_active,
                  int food_count);
 
-void stream_step_state(int step,
+void stream_tick_state(int tick,
+                       float day,
                        const float* pos_x,
                        const float* pos_y,
                        const float* energy,

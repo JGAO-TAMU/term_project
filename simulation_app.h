@@ -23,8 +23,12 @@ private:
     void copy_all_host_to_device();
     void copy_kernel_results_to_host();
     void copy_cpu_results_to_device();
+    void initialize_report() const;
+    void append_report_state(const char* label) const;
     void print_initial_output();
-    void run_step(int step, int blocks, int threads_per_block);
+    void run_tick(int tick, int blocks, int threads_per_block);
+    void print_run_summary(double program_ms) const;
+    void write_report(double program_ms) const;
     void free_host();
     void free_device();
 
@@ -37,9 +41,13 @@ private:
     SimParams params;
     size_t agent_bytes;
     size_t species_bytes;
+    size_t cooldown_bytes;
     size_t agent_flag_bytes;
     size_t food_bytes;
     size_t food_flag_bytes;
+    float total_kernel_ms;
+    float max_kernel_ms;
+    int kernel_launch_count;
     HostBuffers host;
     DeviceBuffers device;
 };

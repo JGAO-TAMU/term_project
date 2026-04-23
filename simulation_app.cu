@@ -3,9 +3,11 @@
 #include <cuda_runtime.h>
 
 #include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 
 #include "cpu_rules.h"
 #include "cuda_utils.h"
@@ -17,7 +19,8 @@ static void print_usage(const char* program_name) {
     std::printf("Usage: %s [options]\n", program_name);
     std::printf("Options:\n");
     std::printf("  --stream\n");
-    std::printf("  --steps N\n");
+    std::printf("  --ticks N\n");
+    std::printf("  --ticks-per-day N\n");
     std::printf("  --agent-capacity N\n");
     std::printf("  --bluegill N\n");
     std::printf("  --minnow N\n");
@@ -40,16 +43,19 @@ static void print_usage(const char* program_name) {
     std::printf("  --noise X\n");
     std::printf("  --reproduce-energy X\n");
     std::printf("  --reproduce-cost X\n");
+    std::printf("  --reproduce-cooldown-days X\n");
     std::printf("  --mate-radius X\n");
     std::printf("  --child-energy X\n");
     std::printf("  --reproduce-chance N\n");
     std::printf("  --max-children N\n");
     std::printf("  --bass-reproduce-energy X\n");
     std::printf("  --bass-reproduce-cost X\n");
+    std::printf("  --bass-reproduce-cooldown-days X\n");
     std::printf("  --bass-child-energy X\n");
     std::printf("  --bass-max-children N\n");
     std::printf("  --minnow-reproduce-energy X\n");
     std::printf("  --minnow-reproduce-cost X\n");
+    std::printf("  --minnow-reproduce-cooldown-days X\n");
     std::printf("  --minnow-child-energy X\n");
     std::printf("  --minnow-max-children N\n");
     std::printf("  --size-growth-threshold X\n");
@@ -83,6 +89,24 @@ static bool read_arg_value(int argc, char** argv, int* index, const char** value
     return true;
 }
 
+static int cooldown_ticks_from_days(float cooldown_days, const SimParams& params) {
+    if (cooldown_days <= 0.0f || params.ticks_per_day <= 0) {
+        return 0;
+    }
+
+    return static_cast<int>(cooldown_days * static_cast<float>(params.ticks_per_day) + 0.5f);
+}
+
+static float tick_to_day(int tick, const SimParams& params) {
+    if (params.ticks_per_day <= 0) {
+        return 0.0f;
+    }
+
+    return static_cast<float>(tick) / static_cast<float>(params.ticks_per_day);
+}
+
+static const char* kReportFilename = "sim_report.txt";
+
 SimulationApp::SimulationApp() {
     host.pos_x = nullptr;
     host.pos_y = nullptr;
@@ -92,6 +116,7 @@ SimulationApp::SimulationApp() {
     host.was_alive = nullptr;
     host.exists = nullptr;
     host.reproduced = nullptr;
+    host.reproduction_cooldown = nullptr;
     host.species = nullptr;
     host.dir_x = nullptr;
     host.dir_y = nullptr;
@@ -104,12 +129,17 @@ SimulationApp::SimulationApp() {
     device.energy = nullptr;
     device.size = nullptr;
     device.alive = nullptr;
+    device.reproduction_cooldown = nullptr;
     device.species = nullptr;
     device.dir_x = nullptr;
     device.dir_y = nullptr;
     device.food_x = nullptr;
     device.food_y = nullptr;
     device.food_active = nullptr;
+
+    total_kernel_ms = 0.0f;
+    max_kernel_ms = 0.0f;
+    kernel_launch_count = 0;
 
     apply_defaults();
 }
@@ -120,52 +150,57 @@ SimulationApp::~SimulationApp() {
 }
 
 void SimulationApp::apply_defaults() {
-    initial_bluegill_count = 10;
-    initial_minnow_count = 20;
-    initial_bass_count = 6;
-    agent_count = 120;
-    food_count = 80;
+    initial_bluegill_count = 20;
+    initial_minnow_count = 35;
+    initial_bass_count = 1;
+    agent_count = 180;
+    food_count = 160;
     stream_mode = false;
     agent_bytes = 0;
     species_bytes = 0;
+    cooldown_bytes = 0;
     agent_flag_bytes = 0;
     food_bytes = 0;
     food_flag_bytes = 0;
 
-    params.step_count = 50;
-    params.reproduction_chance_percent = 60;
-    params.food_respawn_chance_percent = 5;
+    params.tick_count = 50;
+    params.ticks_per_day = 96;
+    params.reproduction_chance_percent = 40;
+    params.food_respawn_chance_percent = 10;
     params.predation_success_percent = 70;
-    params.bluegill_predation_success_percent = 45;
-    params.minnow_predation_success_percent = 70;
-    params.max_children_per_birth = 5;
-    params.bass_max_children_per_birth = 3;
-    params.minnow_max_children_per_birth = 8;
+    params.bluegill_predation_success_percent = 10;
+    params.minnow_predation_success_percent = 20;
+    params.max_children_per_birth = 8;
+    params.bass_max_children_per_birth = 2;
+    params.minnow_max_children_per_birth = 12;
     params.seed = 12345U;
     params.bluegill_energy_gain = 0.00f;
-    params.bluegill_energy_drain = 0.012f;
-    params.bluegill_max_energy = 2.00f;
+    params.bluegill_energy_drain = 0.0012f;
+    params.bluegill_max_energy = 2.40f;
     params.minnow_energy_gain = 0.00f;
-    params.minnow_energy_drain = 0.006f;
-    params.minnow_max_energy = 1.80f;
-    params.bass_energy_drain = 0.0125f;
-    params.bass_energy_gain = 1.00f;
-    params.bass_max_energy = 2.00f;
-    params.detection_radius = 0.18f;
+    params.minnow_energy_drain = 0.0010f;
+    params.minnow_max_energy = 2.00f;
+    params.bass_energy_drain = 0.0060f;
+    params.bass_energy_gain = 3.00f;
+    params.bass_max_energy = 3.00f;
+    params.detection_radius = 0.28f;
     params.predation_radius = 0.025f;
     params.move_step = 0.025f;
     params.decay_factor = 0.95f;
     params.noise_scale = 0.20f;
-    params.reproduction_energy = 1.45f;
-    params.reproduction_cost = 1.00f;
+    params.reproduction_energy = 1.60f;
+    params.reproduction_cost = 0.95f;
+    params.reproduction_cooldown_days = 6.0f;
     params.mate_radius = 0.055f;
-    params.child_energy = 0.55f;
-    params.minnow_reproduction_energy = 1.20f;
-    params.minnow_reproduction_cost = 0.55f;
-    params.minnow_child_energy = 0.70f;
-    params.bass_reproduction_energy = 1.95f;
-    params.bass_reproduction_cost = 1.55f;
-    params.bass_child_energy = 0.75f;
+    params.child_energy = 0.30f;
+    params.minnow_reproduction_energy = 1.45f;
+    params.minnow_reproduction_cost = 0.70f;
+    params.minnow_child_energy = 0.25f;
+    params.minnow_reproduction_cooldown_days = 3.0f;
+    params.bass_reproduction_energy = 2.40f;
+    params.bass_reproduction_cost = 1.80f;
+    params.bass_child_energy = 0.60f;
+    params.bass_reproduction_cooldown_days = 12.0f;
     params.size_growth_threshold = 1.30f;
     params.size_shrink_threshold = 0.70f;
     params.size_growth_rate = 0.015f;
@@ -178,7 +213,7 @@ void SimulationApp::apply_defaults() {
     params.minnow_max_size = 0.10f;
     params.bass_min_size = 0.80f;
     params.bass_max_size = 10.00f;
-    params.food_energy_gain = 0.22f;
+    params.food_energy_gain = 0.18f;
     params.food_eat_radius = 0.025f;
 }
 
@@ -190,11 +225,17 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
     } else if (std::strcmp(argv[*arg_idx], "--help") == 0) {
         print_usage(argv[0]);
         std::exit(EXIT_SUCCESS);
-    } else if (std::strcmp(argv[*arg_idx], "--steps") == 0) {
+    } else if (std::strcmp(argv[*arg_idx], "--ticks") == 0 ||
+               std::strcmp(argv[*arg_idx], "--steps") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
         }
-        params.step_count = std::atoi(value);
+        params.tick_count = std::atoi(value);
+    } else if (std::strcmp(argv[*arg_idx], "--ticks-per-day") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.ticks_per_day = std::atoi(value);
     } else if (std::strcmp(argv[*arg_idx], "--agent-capacity") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
@@ -305,6 +346,11 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
             return false;
         }
         params.reproduction_cost = static_cast<float>(std::atof(value));
+    } else if (std::strcmp(argv[*arg_idx], "--reproduce-cooldown-days") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.reproduction_cooldown_days = static_cast<float>(std::atof(value));
     } else if (std::strcmp(argv[*arg_idx], "--mate-radius") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
@@ -335,6 +381,11 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
             return false;
         }
         params.bass_reproduction_cost = static_cast<float>(std::atof(value));
+    } else if (std::strcmp(argv[*arg_idx], "--bass-reproduce-cooldown-days") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.bass_reproduction_cooldown_days = static_cast<float>(std::atof(value));
     } else if (std::strcmp(argv[*arg_idx], "--bass-child-energy") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
@@ -355,6 +406,11 @@ bool SimulationApp::parse_option(int argc, char** argv, int* arg_idx) {
             return false;
         }
         params.minnow_reproduction_cost = static_cast<float>(std::atof(value));
+    } else if (std::strcmp(argv[*arg_idx], "--minnow-reproduce-cooldown-days") == 0) {
+        if (!read_arg_value(argc, argv, arg_idx, &value)) {
+            return false;
+        }
+        params.minnow_reproduction_cooldown_days = static_cast<float>(std::atof(value));
     } else if (std::strcmp(argv[*arg_idx], "--minnow-child-energy") == 0) {
         if (!read_arg_value(argc, argv, arg_idx, &value)) {
             return false;
@@ -478,8 +534,11 @@ bool SimulationApp::configure(int argc, char** argv) {
 }
 
 void SimulationApp::normalize_config() {
-    if (params.step_count < 0) {
-        params.step_count = 0;
+    if (params.tick_count < 0) {
+        params.tick_count = 0;
+    }
+    if (params.ticks_per_day < 1) {
+        params.ticks_per_day = 1;
     }
     if (initial_bluegill_count < 0) {
         initial_bluegill_count = 0;
@@ -551,6 +610,15 @@ void SimulationApp::normalize_config() {
     if (params.bass_reproduction_energy <= 0.0f) {
         params.bass_reproduction_energy = 0.01f;
     }
+    if (params.reproduction_cooldown_days < 0.0f) {
+        params.reproduction_cooldown_days = 0.0f;
+    }
+    if (params.minnow_reproduction_cooldown_days < 0.0f) {
+        params.minnow_reproduction_cooldown_days = 0.0f;
+    }
+    if (params.bass_reproduction_cooldown_days < 0.0f) {
+        params.bass_reproduction_cooldown_days = 0.0f;
+    }
     if (params.min_size <= 0.0f) {
         params.min_size = 0.01f;
     }
@@ -589,6 +657,7 @@ void SimulationApp::normalize_config() {
 void SimulationApp::allocate_host() {
     agent_bytes = static_cast<size_t>(agent_count) * sizeof(float);
     species_bytes = static_cast<size_t>(agent_count) * sizeof(int);
+    cooldown_bytes = static_cast<size_t>(agent_count) * sizeof(int);
     agent_flag_bytes = static_cast<size_t>(agent_count) * sizeof(bool);
     food_bytes = static_cast<size_t>(food_count) * sizeof(float);
     food_flag_bytes = static_cast<size_t>(food_count) * sizeof(int);
@@ -601,6 +670,7 @@ void SimulationApp::allocate_host() {
     host.was_alive = static_cast<bool*>(std::malloc(agent_flag_bytes));
     host.exists = static_cast<bool*>(std::malloc(agent_flag_bytes));
     host.reproduced = static_cast<bool*>(std::malloc(agent_flag_bytes));
+    host.reproduction_cooldown = static_cast<int*>(std::malloc(cooldown_bytes));
     host.species = static_cast<int*>(std::malloc(species_bytes));
     host.dir_x = static_cast<float*>(std::malloc(agent_bytes));
     host.dir_y = static_cast<float*>(std::malloc(agent_bytes));
@@ -611,7 +681,8 @@ void SimulationApp::allocate_host() {
     if (host.pos_x == nullptr || host.pos_y == nullptr ||
         host.energy == nullptr || host.size == nullptr ||
         host.alive == nullptr || host.was_alive == nullptr ||
-        host.exists == nullptr || host.reproduced == nullptr || host.species == nullptr ||
+        host.exists == nullptr || host.reproduced == nullptr ||
+        host.reproduction_cooldown == nullptr || host.species == nullptr ||
         host.dir_x == nullptr || host.dir_y == nullptr ||
         (food_count > 0 && (host.food_x == nullptr ||
                             host.food_y == nullptr ||
@@ -636,6 +707,7 @@ void SimulationApp::initialize_host() {
         host.alive[i] = false;
         host.was_alive[i] = false;
         host.exists[i] = false;
+        host.reproduction_cooldown[i] = 0;
         host.species[i] = SPECIES_BLUEGILL;
         host.dir_x[i] = 2.0f * random_unit_float() - 1.0f;
         host.dir_y[i] = 2.0f * random_unit_float() - 1.0f;
@@ -652,10 +724,16 @@ void SimulationApp::initialize_host() {
         host.alive[i] = true;
         host.exists[i] = true;
         host.species[i] = SPECIES_BLUEGILL;
+        int bluegill_cooldown_ticks = cooldown_ticks_from_days(params.reproduction_cooldown_days, params);
+        host.reproduction_cooldown[i] = bluegill_cooldown_ticks > 0 ?
+                                        std::rand() % bluegill_cooldown_ticks :
+                                        0;
     }
 
+    int bluegill_offset = initial_bluegill_count;
+    int minnow_cooldown_ticks = cooldown_ticks_from_days(params.minnow_reproduction_cooldown_days, params);
     for (int i = 0; i < initial_minnow_count; ++i) {
-        int idx = initial_bluegill_count + i;
+        int idx = bluegill_offset + i;
         float angle = 6.28318530718f * static_cast<float>(i) /
                       static_cast<float>(initial_minnow_count > 0 ? initial_minnow_count : 1);
         host.pos_x[idx] = 0.50f + 0.10f * std::cos(angle + 0.30f);
@@ -665,10 +743,15 @@ void SimulationApp::initialize_host() {
         host.alive[idx] = true;
         host.exists[idx] = true;
         host.species[idx] = SPECIES_MINNOW;
+        host.reproduction_cooldown[idx] = minnow_cooldown_ticks > 0 ?
+                                          std::rand() % minnow_cooldown_ticks :
+                                          0;
     }
 
+    int bass_offset = initial_bluegill_count + initial_minnow_count;
+    int bass_cooldown_ticks = cooldown_ticks_from_days(params.bass_reproduction_cooldown_days, params);
     for (int i = 0; i < initial_bass_count; ++i) {
-        int idx = initial_bluegill_count + initial_minnow_count + i;
+        int idx = bass_offset + i;
         float angle = 6.28318530718f * static_cast<float>(i) /
                       static_cast<float>(initial_bass_count > 0 ? initial_bass_count : 1);
         host.pos_x[idx] = 0.50f + 0.32f * std::cos(angle);
@@ -678,6 +761,9 @@ void SimulationApp::initialize_host() {
         host.alive[idx] = true;
         host.exists[idx] = true;
         host.species[idx] = SPECIES_BASS;
+        host.reproduction_cooldown[idx] = bass_cooldown_ticks > 0 ?
+                                          std::rand() % bass_cooldown_ticks :
+                                          0;
     }
 
     for (int food_idx = 0; food_idx < food_count; ++food_idx) {
@@ -693,6 +779,8 @@ void SimulationApp::allocate_device() {
     check_cuda(cudaMalloc(&device.energy, agent_bytes), "cudaMalloc(device.energy)");
     check_cuda(cudaMalloc(&device.size, agent_bytes), "cudaMalloc(device.size)");
     check_cuda(cudaMalloc(&device.alive, agent_flag_bytes), "cudaMalloc(device.alive)");
+    check_cuda(cudaMalloc(&device.reproduction_cooldown, cooldown_bytes),
+               "cudaMalloc(device.reproduction_cooldown)");
     check_cuda(cudaMalloc(&device.species, species_bytes), "cudaMalloc(device.species)");
     check_cuda(cudaMalloc(&device.dir_x, agent_bytes), "cudaMalloc(device.dir_x)");
     check_cuda(cudaMalloc(&device.dir_y, agent_bytes), "cudaMalloc(device.dir_y)");
@@ -714,6 +802,11 @@ void SimulationApp::copy_all_host_to_device() {
                "cudaMemcpy(device.size, host.size)");
     check_cuda(cudaMemcpy(device.alive, host.alive, agent_flag_bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy(device.alive, host.alive)");
+    check_cuda(cudaMemcpy(device.reproduction_cooldown,
+                          host.reproduction_cooldown,
+                          cooldown_bytes,
+                          cudaMemcpyHostToDevice),
+               "cudaMemcpy(device.reproduction_cooldown, host.reproduction_cooldown)");
     check_cuda(cudaMemcpy(device.species, host.species, species_bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy(device.species, host.species)");
     check_cuda(cudaMemcpy(device.dir_x, host.dir_x, agent_bytes, cudaMemcpyHostToDevice),
@@ -741,6 +834,11 @@ void SimulationApp::copy_kernel_results_to_host() {
                "cudaMemcpy(host.size, device.size)");
     check_cuda(cudaMemcpy(host.alive, device.alive, agent_flag_bytes, cudaMemcpyDeviceToHost),
                "cudaMemcpy(host.alive, device.alive)");
+    check_cuda(cudaMemcpy(host.reproduction_cooldown,
+                          device.reproduction_cooldown,
+                          cooldown_bytes,
+                          cudaMemcpyDeviceToHost),
+               "cudaMemcpy(host.reproduction_cooldown, device.reproduction_cooldown)");
     check_cuda(cudaMemcpy(host.species, device.species, species_bytes, cudaMemcpyDeviceToHost),
                "cudaMemcpy(host.species, device.species)");
     check_cuda(cudaMemcpy(host.dir_x, device.dir_x, agent_bytes, cudaMemcpyDeviceToHost),
@@ -768,6 +866,11 @@ void SimulationApp::copy_cpu_results_to_device() {
                "cudaMemcpy(device.size, host.size)");
     check_cuda(cudaMemcpy(device.alive, host.alive, agent_flag_bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy(device.alive, host.alive)");
+    check_cuda(cudaMemcpy(device.reproduction_cooldown,
+                          host.reproduction_cooldown,
+                          cooldown_bytes,
+                          cudaMemcpyHostToDevice),
+               "cudaMemcpy(device.reproduction_cooldown, host.reproduction_cooldown)");
     check_cuda(cudaMemcpy(device.species, host.species, species_bytes, cudaMemcpyHostToDevice),
                "cudaMemcpy(device.species, host.species)");
     check_cuda(cudaMemcpy(device.dir_x, host.dir_x, agent_bytes, cudaMemcpyHostToDevice),
@@ -784,11 +887,47 @@ void SimulationApp::copy_cpu_results_to_device() {
     }
 }
 
+void SimulationApp::initialize_report() const {
+    std::ofstream report(kReportFilename, std::ios::trunc);
+    if (!report) {
+        std::fprintf(stderr, "Warning: failed to initialize %s\n", kReportFilename);
+        return;
+    }
+
+    report << "Detailed Simulation Output\n";
+    report << "========================\n";
+    report << "stream_mode=" << (stream_mode ? 1 : 0) << "\n\n";
+}
+
+void SimulationApp::append_report_state(const char* label) const {
+    FILE* report = std::fopen(kReportFilename, "a");
+    if (report == nullptr) {
+        std::fprintf(stderr, "Warning: failed to append to %s\n", kReportFilename);
+        return;
+    }
+
+    write_state(report,
+                label,
+                host.pos_x,
+                host.pos_y,
+                host.energy,
+                host.size,
+                host.alive,
+                host.species,
+                agent_count,
+                host.food_x,
+                host.food_y,
+                host.food_active,
+                food_count);
+    std::fclose(report);
+}
+
 void SimulationApp::print_initial_output() {
     if (stream_mode) {
-        std::printf("step,type,species,id,x,y,energy,active,size\n");
+        std::printf("tick,day,type,species,id,x,y,energy,active,size\n");
         std::fflush(stdout);
-        stream_step_state(0,
+        stream_tick_state(0,
+                          0.0f,
                           host.pos_x,
                           host.pos_y,
                           host.energy,
@@ -802,36 +941,25 @@ void SimulationApp::print_initial_output() {
                           host.food_active,
                           food_count);
     } else {
-        std::printf("Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Capacity: %d\n\n",
-                    count_alive_species(host.alive, host.species, agent_count, SPECIES_BLUEGILL),
-                    count_alive_species(host.alive, host.species, agent_count, SPECIES_MINNOW),
-                    count_alive_species(host.alive, host.species, agent_count, SPECIES_BASS),
-                    count_active_food(host.food_active, food_count),
-                    food_count,
-                    agent_count);
-        print_state("Initial state",
-                    host.pos_x,
-                    host.pos_y,
-                    host.energy,
-                    host.size,
-                    host.alive,
-                    host.species,
-                    agent_count,
-                    host.food_x,
-                    host.food_y,
-                    host.food_active,
-                    food_count);
+        append_report_state("Initial state");
     }
 }
 
-void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
+void SimulationApp::run_tick(int tick, int blocks, int threads_per_block) {
     std::memcpy(host.was_alive, host.alive, agent_flag_bytes);
+
+    cudaEvent_t kernel_start = nullptr;
+    cudaEvent_t kernel_stop = nullptr;
+    check_cuda(cudaEventCreate(&kernel_start), "cudaEventCreate(kernel_start)");
+    check_cuda(cudaEventCreate(&kernel_stop), "cudaEventCreate(kernel_stop)");
+    check_cuda(cudaEventRecord(kernel_start), "cudaEventRecord(kernel_start)");
 
     simulate_agents_kernel<<<blocks, threads_per_block>>>(device.pos_x,
                                                           device.pos_y,
                                                           device.energy,
                                                           device.size,
                                                           device.alive,
+                                                          device.reproduction_cooldown,
                                                           device.species,
                                                           device.dir_x,
                                                           device.dir_y,
@@ -840,12 +968,32 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
                                                           device.food_active,
                                                           agent_count,
                                                           food_count,
-                                                          step,
+                                                          tick,
                                                           params);
+    check_cuda(cudaEventRecord(kernel_stop), "cudaEventRecord(kernel_stop)");
     check_cuda(cudaGetLastError(), "simulate_agents_kernel launch");
     check_cuda(cudaDeviceSynchronize(), "cudaDeviceSynchronize");
+    check_cuda(cudaEventSynchronize(kernel_stop), "cudaEventSynchronize(kernel_stop)");
+
+    float kernel_ms = 0.0f;
+    check_cuda(cudaEventElapsedTime(&kernel_ms, kernel_start, kernel_stop),
+               "cudaEventElapsedTime(kernel)");
+    total_kernel_ms += kernel_ms;
+    if (kernel_ms > max_kernel_ms) {
+        max_kernel_ms = kernel_ms;
+    }
+    ++kernel_launch_count;
+
+    check_cuda(cudaEventDestroy(kernel_start), "cudaEventDestroy(kernel_start)");
+    check_cuda(cudaEventDestroy(kernel_stop), "cudaEventDestroy(kernel_stop)");
 
     copy_kernel_results_to_host();
+
+    for (int agent_idx = 0; agent_idx < agent_count; ++agent_idx) {
+        if (host.exists[agent_idx] && host.alive[agent_idx] && host.reproduction_cooldown[agent_idx] > 0) {
+            --host.reproduction_cooldown[agent_idx];
+        }
+    }
 
     clear_newly_dead_agents(host.was_alive,
                             host.alive,
@@ -872,6 +1020,7 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
                        host.size,
                        host.alive,
                        host.exists,
+                       host.reproduction_cooldown,
                        host.species,
                        host.dir_x,
                        host.dir_y,
@@ -884,6 +1033,7 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
                      host.size,
                      host.alive,
                      host.exists,
+                     host.reproduction_cooldown,
                      host.species,
                      host.dir_x,
                      host.dir_y,
@@ -896,6 +1046,7 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
                    host.size,
                    host.alive,
                    host.exists,
+                   host.reproduction_cooldown,
                    host.species,
                    host.dir_x,
                    host.dir_y,
@@ -911,7 +1062,8 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
     copy_cpu_results_to_device();
 
     if (stream_mode) {
-        stream_step_state(step + 1,
+        stream_tick_state(tick + 1,
+                          tick_to_day(tick + 1, params),
                           host.pos_x,
                           host.pos_y,
                           host.energy,
@@ -926,19 +1078,12 @@ void SimulationApp::run_step(int step, int blocks, int threads_per_block) {
                           food_count);
     } else {
         char label[64];
-        std::snprintf(label, sizeof(label), "Step %d", step + 1);
-        print_state(label,
-                    host.pos_x,
-                    host.pos_y,
-                    host.energy,
-                    host.size,
-                    host.alive,
-                    host.species,
-                    agent_count,
-                    host.food_x,
-                    host.food_y,
-                    host.food_active,
-                    food_count);
+        std::snprintf(label,
+                      sizeof(label),
+                      "Tick %d | Day %.2f",
+                      tick + 1,
+                      tick_to_day(tick + 1, params));
+        append_report_state(label);
     }
 }
 
@@ -951,11 +1096,116 @@ void SimulationApp::run() {
     const int threads_per_block = 32;
     const int blocks = (agent_count + threads_per_block - 1) / threads_per_block;
 
+    total_kernel_ms = 0.0f;
+    max_kernel_ms = 0.0f;
+    kernel_launch_count = 0;
+
+    initialize_report();
+    auto program_start = std::chrono::steady_clock::now();
+
     print_initial_output();
 
-    for (int step = 0; step < params.step_count; ++step) {
-        run_step(step, blocks, threads_per_block);
+    for (int tick = 0; tick < params.tick_count; ++tick) {
+        run_tick(tick, blocks, threads_per_block);
     }
+
+    auto program_end = std::chrono::steady_clock::now();
+    double program_ms = std::chrono::duration<double, std::milli>(program_end - program_start).count();
+
+    print_run_summary(program_ms);
+    write_report(program_ms);
+}
+
+void SimulationApp::print_run_summary(double program_ms) const {
+    int final_bluegill = count_alive_species(host.alive, host.species, agent_count, SPECIES_BLUEGILL);
+    int final_minnow = count_alive_species(host.alive, host.species, agent_count, SPECIES_MINNOW);
+    int final_bass = count_alive_species(host.alive, host.species, agent_count, SPECIES_BASS);
+    int active_food = count_active_food(host.food_active, food_count);
+    float average_kernel_ms = kernel_launch_count > 0 ?
+                              total_kernel_ms / static_cast<float>(kernel_launch_count) :
+                              0.0f;
+
+    FILE* out = stream_mode ? stderr : stdout;
+    std::fprintf(out, "\nRun Summary\n");
+    std::fprintf(out, "Program time: %.3f ms\n", program_ms);
+    std::fprintf(out, "Kernel total: %.3f ms | avg: %.3f ms | max: %.3f ms | launches: %d\n",
+                 total_kernel_ms,
+                 average_kernel_ms,
+                 max_kernel_ms,
+                 kernel_launch_count);
+    std::fprintf(out, "Final day: %.2f | Final tick: %d\n",
+                 tick_to_day(params.tick_count, params),
+                 params.tick_count);
+    std::fprintf(out, "Final counts | Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Alive total: %d\n",
+                 final_bluegill,
+                 final_minnow,
+                 final_bass,
+                 active_food,
+                 food_count,
+                 final_bluegill + final_minnow + final_bass);
+    std::fflush(out);
+}
+
+void SimulationApp::write_report(double program_ms) const {
+    std::ofstream report(kReportFilename, std::ios::app);
+    if (!report) {
+        std::fprintf(stderr, "Warning: failed to write %s\n", kReportFilename);
+        return;
+    }
+
+    int final_bluegill = count_alive_species(host.alive, host.species, agent_count, SPECIES_BLUEGILL);
+    int final_minnow = count_alive_species(host.alive, host.species, agent_count, SPECIES_MINNOW);
+    int final_bass = count_alive_species(host.alive, host.species, agent_count, SPECIES_BASS);
+    int active_food = count_active_food(host.food_active, food_count);
+    float average_kernel_ms = kernel_launch_count > 0 ?
+                              total_kernel_ms / static_cast<float>(kernel_launch_count) :
+                              0.0f;
+
+    report << "Run Summary\n";
+    report << "===========\n";
+    report << "Program time: " << program_ms << " ms\n";
+    report << "Kernel total: " << total_kernel_ms
+           << " ms | avg: " << average_kernel_ms
+           << " ms | max: " << max_kernel_ms
+           << " ms | launches: " << kernel_launch_count << "\n";
+    report << "Final day: " << tick_to_day(params.tick_count, params)
+           << " | Final tick: " << params.tick_count << "\n";
+    report << "Final counts | Bluegill: " << final_bluegill
+           << " | Minnow: " << final_minnow
+           << " | Bass: " << final_bass
+           << " | Food: " << active_food << "/" << food_count
+           << " | Alive total: " << (final_bluegill + final_minnow + final_bass) << "\n\n";
+
+    report << "Simulation Report\n";
+    report << "=================\n";
+    report << "timing.program_ms=" << program_ms << "\n";
+    report << "timing.kernel_total_ms=" << total_kernel_ms << "\n";
+    report << "timing.kernel_avg_ms=" << average_kernel_ms << "\n";
+    report << "timing.kernel_max_ms=" << max_kernel_ms << "\n";
+    report << "timing.kernel_launches=" << kernel_launch_count << "\n";
+    report << "sim.ticks=" << params.tick_count << "\n";
+    report << "sim.ticks_per_day=" << params.ticks_per_day << "\n";
+    report << "sim.final_day=" << tick_to_day(params.tick_count, params) << "\n";
+    report << "sim.stream_mode=" << (stream_mode ? 1 : 0) << "\n";
+    report << "sim.agent_capacity=" << agent_count << "\n";
+    report << "sim.initial_bluegill=" << initial_bluegill_count << "\n";
+    report << "sim.initial_minnow=" << initial_minnow_count << "\n";
+    report << "sim.initial_bass=" << initial_bass_count << "\n";
+    report << "sim.final_bluegill=" << final_bluegill << "\n";
+    report << "sim.final_minnow=" << final_minnow << "\n";
+    report << "sim.final_bass=" << final_bass << "\n";
+    report << "sim.active_food=" << active_food << "\n";
+    report << "sim.total_food=" << food_count << "\n";
+    report << "debug.detection_radius=" << params.detection_radius << "\n";
+    report << "debug.predation_radius=" << params.predation_radius << "\n";
+    report << "debug.move_step=" << params.move_step << "\n";
+    report << "debug.food_respawn_chance_percent=" << params.food_respawn_chance_percent << "\n";
+    report << "debug.food_energy_gain=" << params.food_energy_gain << "\n";
+    report << "debug.bluegill_predation_success_percent=" << params.bluegill_predation_success_percent << "\n";
+    report << "debug.minnow_predation_success_percent=" << params.minnow_predation_success_percent << "\n";
+    report << "debug.reproduction_cooldown_days=" << params.reproduction_cooldown_days << "\n";
+    report << "debug.minnow_reproduction_cooldown_days=" << params.minnow_reproduction_cooldown_days << "\n";
+    report << "debug.bass_reproduction_cooldown_days=" << params.bass_reproduction_cooldown_days << "\n";
 }
 
 void SimulationApp::free_host() {
@@ -967,6 +1217,7 @@ void SimulationApp::free_host() {
     std::free(host.was_alive);
     std::free(host.exists);
     std::free(host.reproduced);
+    std::free(host.reproduction_cooldown);
     std::free(host.species);
     std::free(host.dir_x);
     std::free(host.dir_y);
@@ -982,6 +1233,7 @@ void SimulationApp::free_host() {
     host.was_alive = nullptr;
     host.exists = nullptr;
     host.reproduced = nullptr;
+    host.reproduction_cooldown = nullptr;
     host.species = nullptr;
     host.dir_x = nullptr;
     host.dir_y = nullptr;
@@ -1005,6 +1257,9 @@ void SimulationApp::free_device() {
     }
     if (device.alive != nullptr) {
         check_cuda(cudaFree(device.alive), "cudaFree(device.alive)");
+    }
+    if (device.reproduction_cooldown != nullptr) {
+        check_cuda(cudaFree(device.reproduction_cooldown), "cudaFree(device.reproduction_cooldown)");
     }
     if (device.species != nullptr) {
         check_cuda(cudaFree(device.species), "cudaFree(device.species)");
@@ -1030,6 +1285,7 @@ void SimulationApp::free_device() {
     device.energy = nullptr;
     device.size = nullptr;
     device.alive = nullptr;
+    device.reproduction_cooldown = nullptr;
     device.species = nullptr;
     device.dir_x = nullptr;
     device.dir_y = nullptr;

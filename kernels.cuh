@@ -8,6 +8,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
                                        float* energy,
                                        float* size,
                                        bool* alive,
+                                       const int* reproduction_cooldown,
                                        int* species,
                                        float* dir_x,
                                        float* dir_y,
@@ -16,7 +17,7 @@ __global__ void simulate_agents_kernel(float* pos_x,
                                        int* food_active,
                                        int agent_count,
                                        int food_count,
-                                       int step,
+                                       int tick,
                                        SimParams params);
 
 #endif

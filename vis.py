@@ -37,7 +37,7 @@ def parse_args():
 
     if args.help_vis:
         print("Visualizer-only options:")
-        print("  --vis-skip N       Store every Nth simulation step for replay. Default: 1")
+        print("  --vis-skip N       Store every Nth simulation tick for replay. Default: 1")
         print("  --vis-pause X      Initial replay delay in seconds. Default: 0.05")
         print("  --vis-autoplay     Start replay automatically after loading frames.")
         print("All other options are forwarded to sim.exe.")
@@ -52,13 +52,14 @@ def parse_args():
 
 
 def empty_history():
-    return {"step": [], "bluegill": [], "minnow": [], "bass": [], "food": [], "new": []}
+    return {"tick": [], "day": [], "bluegill": [], "minnow": [], "bass": [], "food": [], "new": []}
 
 
-def build_frame(step, rows, seen_agent_ids):
+def build_frame(tick, day, rows, seen_agent_ids):
     food_heat = [[0 for _ in range(FOOD_GRID_SIZE)] for _ in range(FOOD_GRID_SIZE)]
     frame = {
-        "step": step,
+        "tick": tick,
+        "day": day,
         "bluegill_x": [],
         "bluegill_y": [],
         "bluegill_size": [],
@@ -128,7 +129,7 @@ def build_frame(step, rows, seen_agent_ids):
         energy = float(row["energy"])
         active = int(row["active"])
         fish_size = float(row.get("size", 1.0))
-        is_new_child = step > 0 and agent_id not in seen_agent_ids
+        is_new_child = tick > 0 and agent_id not in seen_agent_ids
 
         frame["total_agents"] += 1
 
@@ -217,17 +218,19 @@ def collect_frames(sim_command, vis_skip):
     frames = []
     history = empty_history()
     seen_agent_ids = set()
-    current_step = None
+    current_tick = None
+    current_day = 0.0
     rows = []
 
-    def finish_step(step, step_rows):
-        if step is None:
+    def finish_tick(tick, day, tick_rows):
+        if tick is None:
             return
 
-        if step % vis_skip == 0:
-            frame = build_frame(step, step_rows, seen_agent_ids)
+        if tick % vis_skip == 0:
+            frame = build_frame(tick, day, tick_rows, seen_agent_ids)
             frames.append(frame)
-            history["step"].append(step)
+            history["tick"].append(tick)
+            history["day"].append(day)
             history["bluegill"].append(frame["bluegill_count"])
             history["minnow"].append(frame["minnow_count"])
             history["bass"].append(frame["bass_count"])
@@ -236,23 +239,26 @@ def collect_frames(sim_command, vis_skip):
                                   len(frame["new_minnow_x"]) +
                                   len(frame["new_bass_x"]))
 
-        remember_agent_ids(step_rows, seen_agent_ids)
+        remember_agent_ids(tick_rows, seen_agent_ids)
 
     reader = csv.DictReader(process.stdout)
     for row in reader:
-        step = int(row["step"])
+        tick = int(row.get("tick", row.get("step", "0")))
+        day = float(row.get("day", tick))
 
-        if current_step is None:
-            current_step = step
+        if current_tick is None:
+            current_tick = tick
+            current_day = day
 
-        if step != current_step:
-            finish_step(current_step, rows)
+        if tick != current_tick:
+            finish_tick(current_tick, current_day, rows)
             rows = []
-            current_step = step
+            current_tick = tick
+            current_day = day
 
         rows.append(row)
 
-    finish_step(current_step, rows)
+    finish_tick(current_tick, current_day, rows)
 
     stderr_output = ""
     if process.stderr is not None:
@@ -352,25 +358,26 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
     plot_ax.set_xlim(0, 1)
     plot_ax.set_ylim(0, 1)
     plot_ax.set_title(
-        f"Step {frame['step']} | Bluegill {frame['bluegill_count']} | "
+        f"Tick {frame['tick']} | Day {frame['day']:.2f} | Bluegill {frame['bluegill_count']} | "
         f"Minnow {frame['minnow_count']} | "
         f"Bass {frame['bass_count']} | Food {frame['active_food_count']}"
     )
     plot_ax.legend(loc="upper right")
 
     stats_ax.clear()
-    stats_ax.plot(history["step"], history["bluegill"], label="Bluegill", color="royalblue")
-    stats_ax.plot(history["step"], history["minnow"], label="Minnow", color="deepskyblue")
-    stats_ax.plot(history["step"], history["bass"], label="Bass", color="crimson")
-    stats_ax.plot(history["step"], history["food"], label="Food", color="darkolivegreen", alpha=0.8)
-    stats_ax.axvline(frame["step"], color="black", linestyle="--", linewidth=1.0, alpha=0.5)
+    stats_ax.plot(history["day"], history["bluegill"], label="Bluegill", color="royalblue")
+    stats_ax.plot(history["day"], history["minnow"], label="Minnow", color="deepskyblue")
+    stats_ax.plot(history["day"], history["bass"], label="Bass", color="crimson")
+    stats_ax.plot(history["day"], history["food"], label="Food", color="darkolivegreen", alpha=0.8)
+    stats_ax.axvline(frame["day"], color="black", linestyle="--", linewidth=1.0, alpha=0.5)
     stats_ax.set_title("Population / Food History")
-    stats_ax.set_xlabel("Step")
+    stats_ax.set_xlabel("Day")
     stats_ax.set_ylabel("Count")
     stats_ax.legend(loc="upper left")
 
     status_summary = (
         f"Replay frame: {frame_index + 1}/{len(frames)}\n"
+        f"Day: {frame['day']:.2f} | Tick: {frame['tick']}\n"
         f"Alive agents: {frame['alive_agents']}/{frame['total_agents']}\n"
         f"Active food: {frame['active_food_count']}/{frame['total_food_count']}\n"
         f"New bluegill this frame: {len(frame['new_child_x'])}\n"
@@ -430,9 +437,9 @@ class ReplayViewer:
         self.summary_ax = self.fig.add_subplot(grid[1, 1])
 
         self.fig.subplots_adjust(bottom=0.22)
-        self.fig.suptitle("Controls: Space = Play/Pause | Left/Right = Step | Home = Start | End = Finish")
+        self.fig.suptitle("Controls: Space = Play/Pause | Left/Right = Tick | Home = Start | End = Finish")
 
-        step_slider_ax = self.fig.add_axes([0.15, 0.12, 0.70, 0.03])
+        tick_slider_ax = self.fig.add_axes([0.15, 0.12, 0.70, 0.03])
         speed_slider_ax = self.fig.add_axes([0.15, 0.07, 0.70, 0.03])
         prev_ax = self.fig.add_axes([0.15, 0.015, 0.12, 0.04])
         play_ax = self.fig.add_axes([0.30, 0.015, 0.16, 0.04])
@@ -440,8 +447,8 @@ class ReplayViewer:
         restart_ax = self.fig.add_axes([0.64, 0.015, 0.12, 0.04])
 
         max_index = max(0, len(frames) - 1)
-        self.step_slider = Slider(
-            step_slider_ax,
+        self.tick_slider = Slider(
+            tick_slider_ax,
             "Frame",
             0,
             max_index,
@@ -460,7 +467,7 @@ class ReplayViewer:
         self.next_button = Button(next_ax, "Next")
         self.restart_button = Button(restart_ax, "Restart")
 
-        self.step_slider.on_changed(self.on_slider_changed)
+        self.tick_slider.on_changed(self.on_slider_changed)
         self.prev_button.on_clicked(self.on_prev)
         self.play_button.on_clicked(self.on_play_pause)
         self.next_button.on_clicked(self.on_next)
@@ -486,7 +493,7 @@ class ReplayViewer:
         self.index = min(max_index, max(0, int(new_index)))
 
         self.slider_is_updating = True
-        self.step_slider.set_val(self.index)
+        self.tick_slider.set_val(self.index)
         self.slider_is_updating = False
 
         self.redraw()

@@ -17,7 +17,8 @@ static int position_to_grid_index(float value, int grid_size) {
     return index;
 }
 
-static void render_grid(const float* pos_x,
+static void render_grid(FILE* out,
+                        const float* pos_x,
                         const float* pos_y,
                         const bool* alive,
                         const int* species,
@@ -60,13 +61,14 @@ static void render_grid(const float* pos_x,
 
     for (int row = 0; row < grid_height; ++row) {
         for (int col = 0; col < grid_width; ++col) {
-            std::printf("%c", grid[row][col]);
+            std::fprintf(out, "%c", grid[row][col]);
         }
-        std::printf("\n");
+        std::fprintf(out, "\n");
     }
 }
 
-void print_state(const char* label,
+void write_state(FILE* out,
+                 const char* label,
                  const float* pos_x,
                  const float* pos_y,
                  const float* energy,
@@ -78,29 +80,32 @@ void print_state(const char* label,
                  const float* food_y,
                  const int* food_active,
                  int food_count) {
-    std::printf("%s\n", label);
-    render_grid(pos_x, pos_y, alive, species, agent_count, food_x, food_y, food_active, food_count);
-    std::printf("Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Capacity: %d\n",
-                count_alive_species(alive, species, agent_count, SPECIES_BLUEGILL),
-                count_alive_species(alive, species, agent_count, SPECIES_MINNOW),
-                count_alive_species(alive, species, agent_count, SPECIES_BASS),
-                count_active_food(food_active, food_count),
-                food_count,
-                agent_count);
-    std::printf("Energies:");
+    std::fprintf(out, "%s\n", label);
+    render_grid(out, pos_x, pos_y, alive, species, agent_count, food_x, food_y, food_active, food_count);
+    std::fprintf(out, "Bluegill: %d | Minnow: %d | Bass: %d | Food: %d/%d | Capacity: %d\n",
+                 count_alive_species(alive, species, agent_count, SPECIES_BLUEGILL),
+                 count_alive_species(alive, species, agent_count, SPECIES_MINNOW),
+                 count_alive_species(alive, species, agent_count, SPECIES_BASS),
+                 count_active_food(food_active, food_count),
+                 food_count,
+                 agent_count);
+    std::fprintf(out, "Energies:");
     for (int agent_idx = 0; agent_idx < agent_count; ++agent_idx) {
         if (alive[agent_idx]) {
-            std::printf(" %s%d=%.2f(size %.2f)",
-                        species_name(species[agent_idx]),
-                        agent_idx,
-                        energy[agent_idx],
-                        size[agent_idx]);
+            std::fprintf(out,
+                         " %s%d=%.2f(size %.2f)",
+                         species_name(species[agent_idx]),
+                         agent_idx,
+                         energy[agent_idx],
+                         size[agent_idx]);
         }
     }
-    std::printf("\n\n");
+    std::fprintf(out, "\n\n");
+    std::fflush(out);
 }
 
-void stream_step_state(int step,
+void stream_tick_state(int tick,
+                       float day,
                        const float* pos_x,
                        const float* pos_y,
                        const float* energy,
@@ -115,8 +120,9 @@ void stream_step_state(int step,
                        int food_count) {
     for (int agent_idx = 0; agent_idx < agent_count; ++agent_idx) {
         if (exists[agent_idx]) {
-            std::printf("%d,agent,%s,%d,%.6f,%.6f,%.6f,%d,%.6f\n",
-                        step,
+            std::printf("%d,%.6f,agent,%s,%d,%.6f,%.6f,%.6f,%d,%.6f\n",
+                        tick,
+                        day,
                         species_name(species[agent_idx]),
                         agent_idx,
                         pos_x[agent_idx],
@@ -128,8 +134,9 @@ void stream_step_state(int step,
     }
 
     for (int food_idx = 0; food_idx < food_count; ++food_idx) {
-        std::printf("%d,food,food,%d,%.6f,%.6f,0.000000,%d,0.000000\n",
-                    step,
+        std::printf("%d,%.6f,food,food,%d,%.6f,%.6f,0.000000,%d,0.000000\n",
+                    tick,
+                    day,
                     food_idx,
                     food_x[food_idx],
                     food_y[food_idx],

@@ -43,6 +43,14 @@ static int find_empty_food_slot(const int* food_active, int food_count) {
     return -1;
 }
 
+static int cooldown_ticks_from_days(float cooldown_days, const SimParams& params) {
+    if (cooldown_days <= 0.0f || params.ticks_per_day <= 0) {
+        return 0;
+    }
+
+    return static_cast<int>(cooldown_days * static_cast<float>(params.ticks_per_day) + 0.5f);
+}
+
 static void activate_food(float* food_x,
                           float* food_y,
                           int* food_active,
@@ -165,6 +173,7 @@ static int reproduce_species(float* pos_x,
                              float* size,
                              bool* alive,
                              bool* exists,
+                             int* reproduction_cooldown,
                              int* species,
                              float* dir_x,
                              float* dir_y,
@@ -173,12 +182,14 @@ static int reproduce_species(float* pos_x,
                              int target_species,
                              float reproduction_energy,
                              float reproduction_cost,
+                             float reproduction_cooldown_days,
                              float child_energy,
                              float child_size,
                              int max_children,
                              const SimParams& params) {
     const float mate_radius_sq = params.mate_radius * params.mate_radius;
     int births = 0;
+    int cooldown_ticks = cooldown_ticks_from_days(reproduction_cooldown_days, params);
 
     std::memset(reproduced, 0, static_cast<size_t>(agent_count) * sizeof(bool));
 
@@ -186,6 +197,7 @@ static int reproduce_species(float* pos_x,
         if (!alive[parent_a] ||
             species[parent_a] != target_species ||
             reproduced[parent_a] ||
+            reproduction_cooldown[parent_a] > 0 ||
             energy[parent_a] < reproduction_energy ||
             energy[parent_a] - reproduction_cost <= 0.0f) {
             continue;
@@ -195,6 +207,7 @@ static int reproduce_species(float* pos_x,
             if (!alive[parent_b] ||
                 species[parent_b] != target_species ||
                 reproduced[parent_b] ||
+                reproduction_cooldown[parent_b] > 0 ||
                 energy[parent_b] < reproduction_energy ||
                 energy[parent_b] - reproduction_cost <= 0.0f) {
                 continue;
@@ -218,6 +231,8 @@ static int reproduce_species(float* pos_x,
 
             energy[parent_a] -= reproduction_cost;
             energy[parent_b] -= reproduction_cost;
+            reproduction_cooldown[parent_a] = cooldown_ticks;
+            reproduction_cooldown[parent_b] = cooldown_ticks;
 
             reproduced[parent_a] = true;
             reproduced[parent_b] = true;
@@ -237,6 +252,7 @@ static int reproduce_species(float* pos_x,
                 size[child_idx] = child_size;
                 alive[child_idx] = true;
                 exists[child_idx] = true;
+                reproduction_cooldown[child_idx] = cooldown_ticks;
                 species[child_idx] = target_species;
                 dir_x[child_idx] = 2.0f * random_unit_float() - 1.0f;
                 dir_y[child_idx] = 2.0f * random_unit_float() - 1.0f;
@@ -259,6 +275,7 @@ int reproduce_bluegill(float* pos_x,
                        float* size,
                        bool* alive,
                        bool* exists,
+                       int* reproduction_cooldown,
                        int* species,
                        float* dir_x,
                        float* dir_y,
@@ -271,6 +288,7 @@ int reproduce_bluegill(float* pos_x,
                              size,
                              alive,
                              exists,
+                             reproduction_cooldown,
                              species,
                              dir_x,
                              dir_y,
@@ -279,6 +297,7 @@ int reproduce_bluegill(float* pos_x,
                              SPECIES_BLUEGILL,
                              params.reproduction_energy,
                              params.reproduction_cost,
+                             params.reproduction_cooldown_days,
                              params.child_energy,
                              params.bluegill_min_size,
                              params.max_children_per_birth,
@@ -291,6 +310,7 @@ int reproduce_minnow(float* pos_x,
                      float* size,
                      bool* alive,
                      bool* exists,
+                     int* reproduction_cooldown,
                      int* species,
                      float* dir_x,
                      float* dir_y,
@@ -303,6 +323,7 @@ int reproduce_minnow(float* pos_x,
                              size,
                              alive,
                              exists,
+                             reproduction_cooldown,
                              species,
                              dir_x,
                              dir_y,
@@ -311,6 +332,7 @@ int reproduce_minnow(float* pos_x,
                              SPECIES_MINNOW,
                              params.minnow_reproduction_energy,
                              params.minnow_reproduction_cost,
+                             params.minnow_reproduction_cooldown_days,
                              params.minnow_child_energy,
                              params.minnow_min_size,
                              params.minnow_max_children_per_birth,
@@ -323,6 +345,7 @@ int reproduce_bass(float* pos_x,
                    float* size,
                    bool* alive,
                    bool* exists,
+                   int* reproduction_cooldown,
                    int* species,
                    float* dir_x,
                    float* dir_y,
@@ -335,6 +358,7 @@ int reproduce_bass(float* pos_x,
                              size,
                              alive,
                              exists,
+                             reproduction_cooldown,
                              species,
                              dir_x,
                              dir_y,
@@ -343,6 +367,7 @@ int reproduce_bass(float* pos_x,
                              SPECIES_BASS,
                              params.bass_reproduction_energy,
                              params.bass_reproduction_cost,
+                             params.bass_reproduction_cooldown_days,
                              params.bass_child_energy,
                              params.bass_min_size,
                              params.bass_max_children_per_birth,

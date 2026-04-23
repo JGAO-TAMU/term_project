@@ -8,7 +8,8 @@ static const int SPECIES_BASS = 1;
 static const int SPECIES_MINNOW = 2;
 
 struct SimParams {
-    int step_count;
+    int tick_count;
+    int ticks_per_day;
     int reproduction_chance_percent;
     int food_respawn_chance_percent;
     int predation_success_percent;
@@ -34,14 +35,17 @@ struct SimParams {
     float noise_scale;
     float reproduction_energy;
     float reproduction_cost;
+    float reproduction_cooldown_days;
     float mate_radius;
     float child_energy;
     float minnow_reproduction_energy;
     float minnow_reproduction_cost;
     float minnow_child_energy;
+    float minnow_reproduction_cooldown_days;
     float bass_reproduction_energy;
     float bass_reproduction_cost;
     float bass_child_energy;
+    float bass_reproduction_cooldown_days;
     float size_growth_threshold;
     float size_shrink_threshold;
     float size_growth_rate;
@@ -67,6 +71,7 @@ struct HostBuffers {
     bool* was_alive;
     bool* exists;
     bool* reproduced;
+    int* reproduction_cooldown;
     int* species;
     float* dir_x;
     float* dir_y;
@@ -81,6 +86,7 @@ struct DeviceBuffers {
     float* energy;
     float* size;
     bool* alive;
+    int* reproduction_cooldown;
     int* species;
     float* dir_x;
     float* dir_y;
