@@ -4,6 +4,5 @@ report/
 build/
 build_a100/
 __pycache__/
-a100_scaling_*.out
-a100_scaling_*.err
+
 
