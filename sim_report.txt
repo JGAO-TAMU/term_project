@@ -4,42 +4,42 @@ stream_mode=0
 
 Run Summary
 ===========
-Program time: 129.186 ms
-Kernel total: 127.226 ms | avg: 63.6129 ms | max: 127.107 ms | launches: 2
-Final day: 1 | Final tick: 2
-Final counts | Bluegill: 20 | Minnow: 19 | Bass: 4 | Food: 71/80 | Cover: 20 | Alive total: 43
+Program time: 15304.7 ms
+Kernel total: 10082.2 ms | avg: 105.023 ms | max: 169.944 ms | launches: 96
+Final day: 1 | Final tick: 96
+Final counts | Bluegill: 44301 | Minnow: 29472 | Bass: 2040 | Food: 6728/33333 | Cover: 5000 | Alive total: 75813
 
 Simulation Report
 =================
-timing.program_ms=129.186
-timing.kernel_total_ms=127.226
-timing.kernel_avg_ms=63.6129
-timing.kernel_max_ms=127.107
-timing.kernel_launches=2
-sim.ticks=2
-sim.ticks_per_day=2
+timing.program_ms=15304.7
+timing.kernel_total_ms=10082.2
+timing.kernel_avg_ms=105.023
+timing.kernel_max_ms=169.944
+timing.kernel_launches=96
+sim.ticks=96
+sim.ticks_per_day=96
 sim.final_day=1
 sim.stream_mode=0
-sim.agent_capacity=128
-sim.initial_bluegill=20
-sim.initial_minnow=20
-sim.initial_bass=4
-sim.final_bluegill=20
-sim.final_minnow=19
-sim.final_bass=4
-sim.active_food=71
-sim.total_food=80
-sim.total_cover=20
+sim.agent_capacity=100000
+sim.initial_bluegill=20000
+sim.initial_minnow=25000
+sim.initial_bass=1000
+sim.final_bluegill=44301
+sim.final_minnow=29472
+sim.final_bass=2040
+sim.active_food=6728
+sim.total_food=33333
+sim.total_cover=5000
 debug.detection_radius=0.35
-debug.spatial_grid_dim=16
+debug.spatial_grid_dim=64
 debug.predation_radius=0.025
 debug.move_step=0.025
 debug.food_respawn_chance_percent=20
 debug.food_energy_gain=0.12
-debug.food_pattern=grid
+debug.food_pattern=random
 debug.cover_radius=0.07
 debug.cover_protection_scale=0.82
-debug.cover_pattern=cluster
+debug.cover_pattern=random
 debug.predation_half_sat=120
 debug.min_refuge_multiplier=0.15
 debug.max_prey_per_bass_per_day=3
@@ -53,7 +53,7 @@ debug.minnow_refuge_scale=0.9
 debug.death_energy_variation=0.02
 debug.bass_starvation_resistant_percent=8
 debug.bass_starvation_reserve=0.45
-debug.mate_radius=0.055
+debug.mate_radius=0.075
 debug.bass_mate_radius=0.14
 debug.bluegill_reproduction_pulse_days=6
 debug.minnow_reproduction_pulse_days=5
