@@ -1,8 +1,10 @@
-experiments/
 replay/
 report/
 build/
 build_a100/
 __pycache__/
-
+/experiments/*
+!/experiments/a100_scaling/
+!/experiments/a100_scaling/20260502_211402/
+!/experiments/a100_scaling/20260502_211402/**
 
