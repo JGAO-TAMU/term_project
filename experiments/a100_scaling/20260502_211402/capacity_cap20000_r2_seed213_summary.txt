@@ -1,0 +1,6 @@
+
+Run Summary
+Program time: 1739.528 ms
+Kernel total: 1290.009 ms | avg: 13.438 ms | max: 16.519 ms | launches: 96
+Final day: 1.00 | Final tick: 96
+Final counts | Bluegill: 7063 | Minnow: 6606 | Bass: 317 | Food: 1398/6666 | Cover: 1000 | Alive total: 13986
