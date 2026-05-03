@@ -40,4 +40,13 @@ void stream_tick_state(int tick,
                        const float* cover_intensity,
                        int cover_count);
 
+void stream_daily_stats(float day,
+                        int bluegill_count,
+                        int minnow_count,
+                        int bass_count,
+                        int food_count,
+                        int births,
+                        int deaths,
+                        int predation_count);
+
 #endif

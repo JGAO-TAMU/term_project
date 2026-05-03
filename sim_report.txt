@@ -1,44 +1,60 @@
 Detailed Simulation Output
 ========================
-stream_mode=1
+stream_mode=0
 
 Run Summary
 ===========
-Program time: 90.5863 ms
-Kernel total: 75.1391 ms | avg: 12.5232 ms | max: 74.7438 ms | launches: 6
-Final day: 0.0625 | Final tick: 6
-Final counts | Bluegill: 30 | Minnow: 50 | Bass: 1 | Food: 242/260 | Cover: 100 | Alive total: 81
+Program time: 129.186 ms
+Kernel total: 127.226 ms | avg: 63.6129 ms | max: 127.107 ms | launches: 2
+Final day: 1 | Final tick: 2
+Final counts | Bluegill: 20 | Minnow: 19 | Bass: 4 | Food: 71/80 | Cover: 20 | Alive total: 43
 
 Simulation Report
 =================
-timing.program_ms=90.5863
-timing.kernel_total_ms=75.1391
-timing.kernel_avg_ms=12.5232
-timing.kernel_max_ms=74.7438
-timing.kernel_launches=6
-sim.ticks=6
-sim.ticks_per_day=96
-sim.final_day=0.0625
-sim.stream_mode=1
-sim.agent_capacity=320
-sim.initial_bluegill=30
-sim.initial_minnow=50
-sim.initial_bass=1
-sim.final_bluegill=30
-sim.final_minnow=50
-sim.final_bass=1
-sim.active_food=242
-sim.total_food=260
-sim.total_cover=100
-debug.detection_radius=0.28
+timing.program_ms=129.186
+timing.kernel_total_ms=127.226
+timing.kernel_avg_ms=63.6129
+timing.kernel_max_ms=127.107
+timing.kernel_launches=2
+sim.ticks=2
+sim.ticks_per_day=2
+sim.final_day=1
+sim.stream_mode=0
+sim.agent_capacity=128
+sim.initial_bluegill=20
+sim.initial_minnow=20
+sim.initial_bass=4
+sim.final_bluegill=20
+sim.final_minnow=19
+sim.final_bass=4
+sim.active_food=71
+sim.total_food=80
+sim.total_cover=20
+debug.detection_radius=0.35
+debug.spatial_grid_dim=16
 debug.predation_radius=0.025
 debug.move_step=0.025
 debug.food_respawn_chance_percent=20
-debug.food_energy_gain=0.18
+debug.food_energy_gain=0.12
+debug.food_pattern=grid
 debug.cover_radius=0.07
-debug.cover_protection_scale=0.75
-debug.bluegill_predation_success_percent=24
-debug.minnow_predation_success_percent=36
-debug.reproduction_cooldown_days=6
-debug.minnow_reproduction_cooldown_days=3
-debug.bass_reproduction_cooldown_days=12
+debug.cover_protection_scale=0.82
+debug.cover_pattern=cluster
+debug.predation_half_sat=120
+debug.min_refuge_multiplier=0.15
+debug.max_prey_per_bass_per_day=3
+debug.bluegill_predation_success_percent=16
+debug.minnow_predation_success_percent=32
+debug.bluegill_soft_cap=0
+debug.minnow_soft_cap=0
+debug.bass_soft_cap=0
+debug.bluegill_refuge_scale=1.2
+debug.minnow_refuge_scale=0.9
+debug.death_energy_variation=0.02
+debug.bass_starvation_resistant_percent=8
+debug.bass_starvation_reserve=0.45
+debug.mate_radius=0.055
+debug.bass_mate_radius=0.14
+debug.bluegill_reproduction_pulse_days=6
+debug.minnow_reproduction_pulse_days=5
+debug.bass_reproduction_pulse_days=9

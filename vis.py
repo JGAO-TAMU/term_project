@@ -4,13 +4,41 @@ import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
+import math
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.widgets import Button, Slider
 
 
 FOOD_GRID_SIZE = 36
 ACTIVE_VIEWER = None
+COVER_CMAP = LinearSegmentedColormap.from_list(
+    "cover_blocks",
+    ["#eef5ff", "#5c85d6", "#1f4aa8", "#0a2463"],
+)
+COVER_SPLAT_RADIUS = 2
+
+
+def add_cover_heat(cover_heat, x, y, intensity):
+    center_col = min(FOOD_GRID_SIZE - 1, max(0, int(x * FOOD_GRID_SIZE)))
+    center_row = min(FOOD_GRID_SIZE - 1, max(0, int(y * FOOD_GRID_SIZE)))
+
+    for row_idx in range(center_row - COVER_SPLAT_RADIUS, center_row + COVER_SPLAT_RADIUS + 1):
+        if row_idx < 0 or row_idx >= FOOD_GRID_SIZE:
+            continue
+        for col in range(center_col - COVER_SPLAT_RADIUS, center_col + COVER_SPLAT_RADIUS + 1):
+            if col < 0 or col >= FOOD_GRID_SIZE:
+                continue
+
+            row_diff = row_idx - center_row
+            col_diff = col - center_col
+            distance = math.sqrt(float(row_diff * row_diff + col_diff * col_diff))
+            if distance > float(COVER_SPLAT_RADIUS):
+                continue
+
+            weight = 1.0 - distance / float(COVER_SPLAT_RADIUS + 1)
+            cover_heat[row_idx][col] += intensity * weight
 
 
 def find_sim_executable():
@@ -33,8 +61,11 @@ def parse_args():
     parser.add_argument("--vis-skip", type=int, default=1)
     parser.add_argument("--vis-pause", type=float, default=0.05)
     parser.add_argument("--vis-autoplay", action="store_true")
+    parser.add_argument("--vis-stats", action="store_true")
     parser.add_argument("--vis-save-replay", action="store_true")
     parser.add_argument("--vis-replay-dir", default="replay")
+    parser.add_argument("--vis-save-plot")
+    parser.add_argument("--vis-no-show", action="store_true")
     parser.add_argument("--help-vis", action="store_true")
     args, sim_args = parser.parse_known_args()
 
@@ -43,8 +74,11 @@ def parse_args():
         print("  --vis-skip N       Store every Nth simulation tick for replay. Default: 1")
         print("  --vis-pause X      Initial replay delay in seconds. Default: 0.05")
         print("  --vis-autoplay     Start replay automatically after loading frames.")
+        print("  --vis-stats        Use daily aggregate stats mode instead of full replay mode.")
         print("  --vis-save-replay  Save streamed replay CSV to the replay folder.")
         print("  --vis-replay-dir   Replay output folder. Default: replay")
+        print("  --vis-save-plot P  Save stats plot image to path P.")
+        print("  --vis-no-show      Do not open the Matplotlib window after saving.")
         print("All other options are forwarded to sim.exe.")
         sys.exit(0)
 
@@ -140,9 +174,7 @@ def build_frame(tick, day, rows, seen_agent_ids):
             x = float(row["x"])
             y = float(row["y"])
             intensity = float(row.get("intensity", 0.0))
-            col = min(FOOD_GRID_SIZE - 1, max(0, int(x * FOOD_GRID_SIZE)))
-            row_idx = min(FOOD_GRID_SIZE - 1, max(0, int(y * FOOD_GRID_SIZE)))
-            cover_heat[row_idx][col] += intensity
+            add_cover_heat(cover_heat, x, y, intensity)
             frame["total_cover_count"] += 1
             cover_intensity_total += intensity
             continue
@@ -336,8 +368,110 @@ def collect_frames(sim_command, vis_skip, replay_path=None):
     return frames, history
 
 
+def collect_daily_stats(sim_command, replay_path=None):
+    print("Launching simulation:")
+    print(" ".join(sim_command))
+    print("Loading daily stats...")
+
+    process = subprocess.Popen(
+        sim_command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+
+    if process.stdout is None:
+        raise RuntimeError("Failed to capture simulation stdout.")
+
+    header_line = process.stdout.readline()
+    if not header_line:
+        stderr_output = ""
+        if process.stderr is not None:
+            stderr_output = process.stderr.read()
+        process.wait()
+        raise RuntimeError(f"Simulation did not produce stats output.\n{stderr_output}")
+
+    fieldnames = next(csv.reader([header_line.strip()]))
+    rows = []
+    saved_replay = None
+    replay_file = None
+    if replay_path is not None:
+        replay_file = replay_path.open("w", newline="", encoding="utf-8")
+        replay_file.write(header_line)
+        saved_replay = replay_path
+
+    for line in process.stdout:
+        if replay_file is not None:
+            replay_file.write(line)
+
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        values = next(csv.reader([stripped]))
+        if len(values) != len(fieldnames):
+            continue
+        rows.append(dict(zip(fieldnames, values)))
+
+    stderr_output = ""
+    if process.stderr is not None:
+        stderr_output = process.stderr.read()
+
+    if replay_file is not None:
+        replay_file.close()
+
+    return_code = process.wait()
+    if return_code != 0:
+        raise RuntimeError(f"Simulation exited with code {return_code}.\n{stderr_output}")
+    if not rows:
+        raise RuntimeError("No daily stats were captured from the simulation.")
+
+    print(f"Loaded {len(rows)} daily summaries.")
+    if saved_replay is not None:
+        print(f"Saved replay to: {saved_replay}")
+    return rows
+
+
+def show_stats_plot(rows, output_path=None, show_window=True):
+    days = [float(row["day"]) for row in rows]
+    bluegill = [int(row["bluegill"]) for row in rows]
+    minnow = [int(row["minnow"]) for row in rows]
+    bass = [int(row["bass"]) for row in rows]
+    food = [int(row["food"]) for row in rows]
+
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    ax.plot(days, bluegill, label="Bluegill", color="royalblue")
+    ax.plot(days, minnow, label="Minnow", color="deepskyblue")
+    ax.plot(days, bass, label="Bass", color="crimson")
+    ax.plot(days, food, label="Food", color="darkolivegreen", alpha=0.8)
+    ax.set_title("Daily Population Stats")
+    ax.set_xlabel("Day")
+    ax.set_ylabel("Count")
+    ax.legend(loc="upper right")
+    fig.tight_layout()
+    if output_path is not None:
+        fig.savefig(output_path, dpi=160)
+        print(f"Saved stats plot to: {output_path}")
+    if show_window:
+        plt.show()
+    else:
+        plt.close(fig)
+
+
 def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
     frame = frames[frame_index]
+
+    def jitter_points(xs, ys, jitter_seed, scale):
+        jittered_x = []
+        jittered_y = []
+        for idx, (x, y) in enumerate(zip(xs, ys)):
+            angle = 0.37 * float(jitter_seed) + 1.91 * float(idx)
+            jitter_x = scale * math.sin(angle)
+            jitter_y = scale * math.cos(angle * 1.27)
+            jittered_x.append(min(1.0, max(0.0, x + jitter_x)))
+            jittered_y.append(min(1.0, max(0.0, y + jitter_y)))
+        return jittered_x, jittered_y
 
     plot_ax.clear()
     if frame["total_cover_count"] > 0:
@@ -345,9 +479,9 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
             frame["cover_heat"],
             extent=[0, 1, 0, 1],
             origin="lower",
-            cmap="PuBu",
-            alpha=0.28,
-            interpolation="nearest",
+            cmap=COVER_CMAP,
+            alpha=0.78,
+            interpolation="bilinear",
             vmin=0,
         )
     if frame["active_food_count"] > 0:
@@ -361,27 +495,39 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
             vmin=0,
         )
     if frame["bluegill_x"]:
+        bluegill_x, bluegill_y = jitter_points(frame["bluegill_x"],
+                                               frame["bluegill_y"],
+                                               frame["tick"] + 11,
+                                               0.0035)
         plot_ax.scatter(
-            frame["bluegill_x"],
-            frame["bluegill_y"],
+            bluegill_x,
+            bluegill_y,
             label="Bluegill",
             s=[18 + 60 * value for value in frame["bluegill_size"]],
             color="royalblue",
             alpha=0.75,
         )
     if frame["minnow_x"]:
+        minnow_x, minnow_y = jitter_points(frame["minnow_x"],
+                                           frame["minnow_y"],
+                                           frame["tick"] + 29,
+                                           0.0045)
         plot_ax.scatter(
-            frame["minnow_x"],
-            frame["minnow_y"],
+            minnow_x,
+            minnow_y,
             label="Minnow",
             s=[8 + 80 * value for value in frame["minnow_size"]],
             color="deepskyblue",
             alpha=0.65,
         )
     if frame["bass_x"]:
+        bass_x, bass_y = jitter_points(frame["bass_x"],
+                                       frame["bass_y"],
+                                       frame["tick"] + 53,
+                                       0.0030)
         plot_ax.scatter(
-            frame["bass_x"],
-            frame["bass_y"],
+            bass_x,
+            bass_y,
             label="Bass",
             s=[32 + 8 * value for value in frame["bass_size"]],
             color="crimson",
@@ -429,6 +575,7 @@ def draw_frame(plot_ax, stats_ax, summary_ax, frames, history, frame_index):
 
     plot_ax.set_xlim(0, 1)
     plot_ax.set_ylim(0, 1)
+    plot_ax.set_aspect("equal", adjustable="box")
     plot_ax.set_title(
         f"Tick {frame['tick']} | Day {frame['day']:.2f} | Bluegill {frame['bluegill_count']} | "
         f"Minnow {frame['minnow_count']} | "
@@ -638,11 +785,16 @@ def main():
 
     vis_args, sim_args = parse_args()
     sim_executable = find_sim_executable()
-    sim_command = [str(sim_executable), "--stream"] + sim_args
     replay_path = create_replay_path(vis_args.vis_replay_dir) if vis_args.vis_save_replay else None
-    frames, history = collect_frames(sim_command, vis_args.vis_skip, replay_path)
-    ACTIVE_VIEWER = ReplayViewer(frames, history, vis_args.vis_pause, vis_args.vis_autoplay)
-    plt.show()
+    if vis_args.vis_stats:
+        stats_command = [str(sim_executable), "--stats"] + sim_args
+        rows = collect_daily_stats(stats_command, replay_path)
+        show_stats_plot(rows, vis_args.vis_save_plot, not vis_args.vis_no_show)
+    else:
+        sim_command = [str(sim_executable), "--stream"] + sim_args
+        frames, history = collect_frames(sim_command, vis_args.vis_skip, replay_path)
+        ACTIVE_VIEWER = ReplayViewer(frames, history, vis_args.vis_pause, vis_args.vis_autoplay)
+        plt.show()
 
 
 if __name__ == "__main__":

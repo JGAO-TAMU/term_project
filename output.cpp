@@ -189,3 +189,23 @@ void stream_tick_state(int tick,
 
     std::fflush(stdout);
 }
+
+void stream_daily_stats(float day,
+                        int bluegill_count,
+                        int minnow_count,
+                        int bass_count,
+                        int food_count,
+                        int births,
+                        int deaths,
+                        int predation_count) {
+    std::printf("%.6f,%d,%d,%d,%d,%d,%d,%d\n",
+                day,
+                bluegill_count,
+                minnow_count,
+                bass_count,
+                food_count,
+                births,
+                deaths,
+                predation_count);
+    std::fflush(stdout);
+}

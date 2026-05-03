@@ -26,18 +26,51 @@ __device__ float clamp01(float value) {
     return value;
 }
 
+__device__ int clamp_grid_coord(int coord, int grid_dim) {
+    if (coord < 0) {
+        return 0;
+    }
+    if (coord >= grid_dim) {
+        return grid_dim - 1;
+    }
+    return coord;
+}
+
+__device__ int spatial_cell_for_point(float x, float y, int grid_dim) {
+    int cell_x = clamp_grid_coord(static_cast<int>(x * static_cast<float>(grid_dim)), grid_dim);
+    int cell_y = clamp_grid_coord(static_cast<int>(y * static_cast<float>(grid_dim)), grid_dim);
+    return cell_y * grid_dim + cell_x;
+}
+
+__device__ int cell_min_for_radius(float value, float radius, int grid_dim) {
+    return clamp_grid_coord(static_cast<int>((value - radius) * static_cast<float>(grid_dim)), grid_dim);
+}
+
+__device__ int cell_max_for_radius(float value, float radius, int grid_dim) {
+    return clamp_grid_coord(static_cast<int>((value + radius) * static_cast<float>(grid_dim)), grid_dim);
+}
+
+__device__ int species_cell_head_offset(int species, int grid_dim) {
+    return species * grid_dim * grid_dim;
+}
+
 __global__ void simulate_agents_kernel(float* pos_x,
                                        float* pos_y,
                                        float* energy,
+                                       const float* death_energy,
                                        float* size,
+                                       int* spawn_cooldown,
                                        bool* alive,
-                                       const int* reproduction_cooldown,
                                        int* species,
                                        float* dir_x,
                                        float* dir_y,
                                        const float* food_x,
                                        const float* food_y,
                                        int* food_active,
+                                       const int* agent_cell_head,
+                                       const int* agent_cell_next,
+                                       const int* food_cell_head,
+                                       const int* food_cell_next,
                                        int agent_count,
                                        int food_count,
                                        int tick,
@@ -51,7 +84,6 @@ __global__ void simulate_agents_kernel(float* pos_x,
     float y = pos_y[idx];
     float e = energy[idx];
     float s = size[idx];
-    int my_reproduction_cooldown = reproduction_cooldown[idx];
     int my_species = species[idx];
     bool is_prey = my_species == SPECIES_BLUEGILL || my_species == SPECIES_MINNOW;
     float species_min_size = params.bluegill_min_size;
@@ -84,10 +116,14 @@ __global__ void simulate_agents_kernel(float* pos_x,
         }
     }
 
-    if (e <= 0.0f) {
-        energy[idx] = 0.0f;
+    if (e <= death_energy[idx]) {
+        energy[idx] = death_energy[idx];
         alive[idx] = false;
         return;
+    }
+
+    if (spawn_cooldown[idx] > 0) {
+        spawn_cooldown[idx] -= 1;
     }
 
     const float detection_radius_sq = params.detection_radius * params.detection_radius;
@@ -96,66 +132,115 @@ __global__ void simulate_agents_kernel(float* pos_x,
     float target_distance_sq = detection_radius_sq;
     float my_reproduction_energy = params.reproduction_energy;
     float my_reproduction_cost = params.reproduction_cost;
+    float my_mate_radius = params.mate_radius;
+    float my_mate_radius_sq = params.mate_radius * params.mate_radius;
     if (my_species == SPECIES_BASS) {
         my_reproduction_energy = params.bass_reproduction_energy;
         my_reproduction_cost = params.bass_reproduction_cost;
+        my_mate_radius = params.bass_mate_radius;
+        my_mate_radius_sq = params.bass_mate_radius * params.bass_mate_radius;
     } else if (my_species == SPECIES_MINNOW) {
         my_reproduction_energy = params.minnow_reproduction_energy;
         my_reproduction_cost = params.minnow_reproduction_cost;
     }
-    bool can_mate = my_reproduction_cooldown <= 0 &&
+    bool can_mate = spawn_cooldown[idx] <= 0 &&
                     e >= my_reproduction_energy &&
                     e - my_reproduction_cost > 0.0f;
 
     if (can_mate) {
-        for (int other_idx = 0; other_idx < agent_count; ++other_idx) {
-            if (other_idx != idx &&
-                alive[other_idx] &&
-                species[other_idx] == my_species &&
-                reproduction_cooldown[other_idx] <= 0 &&
-                energy[other_idx] >= my_reproduction_energy &&
-                energy[other_idx] - my_reproduction_cost > 0.0f) {
-                float diff_x = pos_x[other_idx] - x;
-                float diff_y = pos_y[other_idx] - y;
-                float distance_sq = diff_x * diff_x + diff_y * diff_y;
+        float nearest_mate_distance_sq = my_mate_radius_sq;
+        int min_cell_x = cell_min_for_radius(x, my_mate_radius, params.spatial_grid_dim);
+        int max_cell_x = cell_max_for_radius(x, my_mate_radius, params.spatial_grid_dim);
+        int min_cell_y = cell_min_for_radius(y, my_mate_radius, params.spatial_grid_dim);
+        int max_cell_y = cell_max_for_radius(y, my_mate_radius, params.spatial_grid_dim);
+        int head_offset = species_cell_head_offset(my_species, params.spatial_grid_dim);
 
-                if (distance_sq <= target_distance_sq) {
-                    target_agent_idx = other_idx;
-                    target_distance_sq = distance_sq;
+        for (int cell_y = min_cell_y; cell_y <= max_cell_y; ++cell_y) {
+            for (int cell_x = min_cell_x; cell_x <= max_cell_x; ++cell_x) {
+                int cell = head_offset + cell_y * params.spatial_grid_dim + cell_x;
+                for (int other_idx = agent_cell_head[cell];
+                     other_idx >= 0;
+                     other_idx = agent_cell_next[other_idx]) {
+                    if (other_idx != idx &&
+                        alive[other_idx] &&
+                        species[other_idx] == my_species &&
+                        spawn_cooldown[other_idx] <= 0 &&
+                        energy[other_idx] >= my_reproduction_energy &&
+                        energy[other_idx] - my_reproduction_cost > 0.0f) {
+                        float diff_x = pos_x[other_idx] - x;
+                        float diff_y = pos_y[other_idx] - y;
+                        float distance_sq = diff_x * diff_x + diff_y * diff_y;
+
+                        if (distance_sq <= nearest_mate_distance_sq) {
+                            target_agent_idx = other_idx;
+                            nearest_mate_distance_sq = distance_sq;
+                        }
+                    }
                 }
             }
+        }
+
+        if (target_agent_idx >= 0) {
+            target_distance_sq = nearest_mate_distance_sq;
         }
     }
 
     if (target_agent_idx < 0) {
         if (my_species == SPECIES_BASS && e < params.bass_max_energy) {
-            for (int other_idx = 0; other_idx < agent_count; ++other_idx) {
-                if (alive[other_idx] &&
-                    (species[other_idx] == SPECIES_BLUEGILL ||
-                     species[other_idx] == SPECIES_MINNOW)) {
-                    float diff_x = pos_x[other_idx] - x;
-                    float diff_y = pos_y[other_idx] - y;
-                    float distance_sq = diff_x * diff_x + diff_y * diff_y;
+            int min_cell_x = cell_min_for_radius(x, params.detection_radius, params.spatial_grid_dim);
+            int max_cell_x = cell_max_for_radius(x, params.detection_radius, params.spatial_grid_dim);
+            int min_cell_y = cell_min_for_radius(y, params.detection_radius, params.spatial_grid_dim);
+            int max_cell_y = cell_max_for_radius(y, params.detection_radius, params.spatial_grid_dim);
+            const int prey_species[2] = {SPECIES_BLUEGILL, SPECIES_MINNOW};
 
-                    if (distance_sq <= target_distance_sq) {
-                        target_agent_idx = other_idx;
-                        target_distance_sq = distance_sq;
+            for (int prey_idx = 0; prey_idx < 2; ++prey_idx) {
+                int head_offset = species_cell_head_offset(prey_species[prey_idx],
+                                                           params.spatial_grid_dim);
+                for (int cell_y = min_cell_y; cell_y <= max_cell_y; ++cell_y) {
+                    for (int cell_x = min_cell_x; cell_x <= max_cell_x; ++cell_x) {
+                        int cell = head_offset + cell_y * params.spatial_grid_dim + cell_x;
+                        for (int other_idx = agent_cell_head[cell];
+                             other_idx >= 0;
+                             other_idx = agent_cell_next[other_idx]) {
+                            if (alive[other_idx] && species[other_idx] == prey_species[prey_idx]) {
+                                float diff_x = pos_x[other_idx] - x;
+                                float diff_y = pos_y[other_idx] - y;
+                                float distance_sq = diff_x * diff_x + diff_y * diff_y;
+
+                                if (distance_sq <= target_distance_sq) {
+                                    target_agent_idx = other_idx;
+                                    target_distance_sq = distance_sq;
+                                }
+                            }
+                        }
                     }
                 }
             }
         } else if (is_prey) {
-            for (int food_idx = 0; food_idx < food_count; ++food_idx) {
-                if (food_active[food_idx] == 0) {
-                    continue;
-                }
+            int min_cell_x = cell_min_for_radius(x, params.detection_radius, params.spatial_grid_dim);
+            int max_cell_x = cell_max_for_radius(x, params.detection_radius, params.spatial_grid_dim);
+            int min_cell_y = cell_min_for_radius(y, params.detection_radius, params.spatial_grid_dim);
+            int max_cell_y = cell_max_for_radius(y, params.detection_radius, params.spatial_grid_dim);
 
-                float diff_x = food_x[food_idx] - x;
-                float diff_y = food_y[food_idx] - y;
-                float distance_sq = diff_x * diff_x + diff_y * diff_y;
+            for (int cell_y = min_cell_y; cell_y <= max_cell_y; ++cell_y) {
+                for (int cell_x = min_cell_x; cell_x <= max_cell_x; ++cell_x) {
+                    int cell = cell_y * params.spatial_grid_dim + cell_x;
+                    for (int food_idx = food_cell_head[cell];
+                         food_idx >= 0;
+                         food_idx = food_cell_next[food_idx]) {
+                        if (food_active[food_idx] == 0) {
+                            continue;
+                        }
 
-                if (distance_sq <= target_distance_sq) {
-                    target_food_idx = food_idx;
-                    target_distance_sq = distance_sq;
+                        float diff_x = food_x[food_idx] - x;
+                        float diff_y = food_y[food_idx] - y;
+                        float distance_sq = diff_x * diff_x + diff_y * diff_y;
+
+                        if (distance_sq <= target_distance_sq) {
+                            target_food_idx = food_idx;
+                            target_distance_sq = distance_sq;
+                        }
+                    }
                 }
             }
         }
